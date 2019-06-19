@@ -294,8 +294,6 @@ $$ language plpgsql;
 
 
 
--- Creating a (mini table) type that stores 3 variables. Makes passing trough data easier.
-CREATE TYPE job_batch_thing AS (pipe_job_id int, all_ready bool);   -- drop type job_batch_thing;
 
 -- Find fitting job and assign it!!
 -- PROCEDURE Provides flexible input, no return value, so can use notification, supports transactions.
@@ -309,11 +307,12 @@ CREATE OR REPLACE FUNCTION find_job(in VARCHAR(12), in VARCHAR(50), in VARCHAR(5
                                     out output varchar)
 returns varchar AS $$
 declare
-    job_list  job_batch_thing%ROWTYPE;
-    my_jobs   job_queue%ROWTYPE;
+    job_list    record;
+    my_jobs     job_queue[];
+    a_job       job_queue;
 begin
 	call send_heartbeat($1, $2, $3, $4);
-		
+	
 	-- If kill_switch is set, kill app:
 	if (select Process_Kill_switch from process_heartbeats where process_uuid = $1) = True then
 		output := 'kill';
@@ -335,115 +334,44 @@ begin
 	    limit 1;
 	   
 	-- build-in: 'found', checks if 'previous query' returned any result.
-	if not found or not (job_list).all_ready then
+	if not found or not job_list.all_ready then
 		output:= 'No job found';
 		return;
 	end if;
 
 	-- This operation must happen seperately because we have to group above to make use of a limit 1.
+	-- A loop must be used because it is not possible to store multiple rows in a variable.
 	-- So here we obtain all the jobs related to the pipe_job_id and process we are ready to pick up.
-	select * into my_jobs from job_queue where 
-		pipe_job_id = (job_list).pipe_job_id and
-		job_assign_Process_uuid is null and
-		job_assign_process_name =  $3 and
-	    job_assign_process_version = $4 for update;
-
-	update job_queue set 
-    	job_assign_Process_uuid = $1, 
-    	job_assign_timestamp = current_timestamp where
-    	job_id in (my_jobs.job_id) and job_assign_Process_uuid is null;
+	FOR a_job in select * from job_queue where 
+			pipe_job_id = job_list.pipe_job_id and
+			job_assign_Process_uuid is null and
+			job_assign_process_name = $3 and
+		    job_assign_process_version = $4
+	loop
+		-- We are using array appending here:
+		my_jobs := my_jobs || a_job;
+		-- 'pick up' record by record:
+		update job_queue set 
+	    	job_assign_Process_uuid = $1, 
+	    	job_assign_timestamp = current_timestamp where
+	    	job_id = a_job.job_id and job_assign_Process_uuid is null;
+	end loop;
     
 	-- Set process heartbeat bussy to TRUE (for now, this is nothing more than an indication).
 	update process_heartbeats set process_bussy = true where Process_uuid = $1;
 	
 	-- The 'job_queue' is queried again to obtain the latest and just updated job content.
-	select * into my_jobs from job_queue where job_id in (my_jobs.job_id);
-	output := row_to_json(my_jobs)::text;
+	output := array_to_json(my_jobs)::text;
 	return;
 
 END;
 $$ LANGUAGE plpgsql;
 
-	   
+
 -- UUID, server_name, process_name, process_version
-select find_job('ldfjl', 'sdlfkj', 'second_process', '.0.0');
-call create_job(2, '{}');
+select find_job('ldfjl', 'sdlfkj', 'first_process', '1.0.0');
+select find_job('ldfjl', 'sdlfkj', 'second_process', '1.5.2');
 
--- START TRANSACTION ISOLATION LEVEL SERIALIZABLE
+update job_queue set job_assign_process_uuid = null where job_id > 10;
  
---declare
---	old_job         job_queue%ROWTYPE; 
---	all_jobs        job_queue%ROWTYPE; 
---	next_process    pipeline_processes%ROWTYPE; 
---begin
---	-- Update just executed job:
---	update job_queue set job_finished = true where job_id = $1;
---	commit;
---
---	-- Obtain my job info:
---	select * into old_job from job_queue where job_id = $1;
---	
---	-- Obtain all batch jobs (can also be one).
---	select * into all_jobs from job_queue
---		where pipe_job_Id = old_job.pipe_job_Id
---		and pipe_id = old_job.pipe_id
---		and job_assign_process_name = old_job.job_assign_process_name;
---	
---	-- If not all finished, do nothing!!:
---	-- (bool_and  is some kind of 'all' function)
---	if all_jobs is null or 
---			not bool_and(all_jobs.job_finished) then
---		return;
---	end if;
 
---
----- Since we are working within a single transaction
----- Trying 'function' approach: 
----- UUID, server_name, process_name, process_version
---CREATE OR REPLACE FUNCTION find_batch_job(in VARCHAR(12), in VARCHAR(50), in VARCHAR(50), in VARCHAR(10),
---                                    out output varchar)
---returns varchar AS $$
---declare
---    all_jobs  job_queue%ROWTYPE; 
---begin
---	call send_heartbeat($1, $2, $3, $4);
---	
---	-- If kill_switch is set, kill app:
---	--select Process_Kill_switch into  from process_heartbeats where process_uuid = $1;
---	--if check = True then
---	if (select Process_Kill_switch from process_heartbeats where process_uuid = $1) = True then
---		output := 'kill';
---		return;
---	end if;
---
---	-- Check if there is a task available for me:
---	-- This check leaves out the 'pipe_id', because this does not matter for a container that takes a job.
---	select pipe_job_Id into my_job from job_queue where 
---		job_assign_Process_uuid is null
---		group by job_assign_Process_uuid;
---	
---	select * into my_job from job_queue where
---		job_assign_Process_uuid is null and
---		job_assign_process_name = $3 and
---	    job_assign_process_version = $4
---	    order by job_priority, job_create_timestamp limit 1 for update;
---	
---	update job_queue set 
---    	job_assign_Process_uuid = $1, 
---    	job_assign_timestamp = current_timestamp where
---    	job_id = my_job.job_id and job_assign_Process_uuid is null;
---    
---	-- Set process heartbeat bussy to TRUE (for now, this is nothing more than an indication).
---	update process_heartbeats set process_bussy = true where Process_uuid = $1;
---	-- build-in: 'found', checks if 'previous query' returned any result.
---	
---	if my_job IS null then
---		output := 'No job found';
---		return;
---	end if;
---	
---	output := row_to_json(all_jobs)::text;
---	return;
---
---END;
---$$ LANGUAGE plpgsql;
