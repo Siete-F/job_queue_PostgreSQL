@@ -53,16 +53,26 @@ GRANT ALL ON TABLE public.pipeline_process_order TO test_user;
 
 -- Insert some values
 insert into Pipelines (pipe_id, pipe_name, pipe_version, pipe_type, pipe_order) values 
-   (1, 'example_pipe',          '1.0.5',   'examples',        1), 
-   (2, 'example_pipe_followup', '99.3.88', 'post_operations', 2);
+   (1, 'activities classification',          '1.0.5',   'analysis',        1), 
+   (2, 'activities classification',          '1.2.0',   'analysis',        1), 
+   (3, 'wearing compliance',                 '1.2.0',   'analysis',        1), 
+   (4, 'generate reports',                   '9.3.88',  'reports',         2);
 insert into pipeline_processes (pipe_id, process_name, process_version, process_order) values
-   (1, 'second_process', '1.5.2', 2),
-   (1, 'first_process',  '1.0.0', 1),
-   (1, 'third_process',  '1.0.0', 3);
+   (1, 'wearing_compliance', '1.5.2', 2),
+   (1, 'classification',      '1.0.0', 3),
+   (1, 'assigner',           '1.0.0', 1),
+   (1, 'movemonitor',        '1.0.0', 4);
 insert into pipeline_processes (pipe_id, process_name, process_version, process_order, process_configuration) values
-   (2, '2_fourth_process', '1.9.2', 1, '{"configuration": ""}'),
-   (2, '2_fifth_process',  '2.2.0', 2, '{"configuration": "fifth process configuration"}'),
-   (2, '2_sixed_process',  '5.3.0', 3, '{"configuration": ""}');
+   (2, 'first_process',   '1.9.2', 1, '{"configuration": "first"}'),
+   (2, 'second_process',  '2.2.0', 2, '{"configuration": "second process configuration"}'),
+   (2, 'third_process',   '5.3.0', 3, '{"configuration": "blub"}');
+insert into pipeline_processes (pipe_id, process_name, process_version, process_order) values
+   (3, 'wearing_compliance', '1.5.2', 2),
+   (3, 'assigner',           '1.0.0', 1),
+   (3, 'wc_upload',        '1.0.0', 3);
+insert into pipeline_processes (pipe_id, process_name, process_version, process_order) values
+   (4, 'sumarizing_results', '1.5.2', 2),
+   (4, 'creating_report',      '1.0.0', 3);
 
 -- Process handling
 -- Heartbeats table, every process creates or updates it heartbeat timestamp via a stored procedure 'send_heartbeat'
@@ -91,8 +101,10 @@ comment on column pipe_job_Queue.pipe_job_Priority is 'Jobs are sorted based on 
  -- Insert some values
 insert into pipe_job_queue values 
    (1, 50, 1, 100, false), 
-   (2, 50, 1, 100, false),
-   (3, 50, 2, 100, false)
+   (2, 50, 1, 150, false),
+   (3, 50, 4, 90, false),  -- An order 2 pipe_id
+   (4, 45, 1, 200, false),
+   (5, 50, 2, 90, false);
   
 -- Job Queue table
 CREATE TABLE Job_Queue (
@@ -105,13 +117,13 @@ CREATE TABLE Job_Queue (
     job_finished               BOOL default null,      -- with null, we could use 'false' as 'aborted' or 'crashed'.
     Job_Create_Timestamp       TIMESTAMPTZ default current_timestamp,
     Job_Finished_Timestamp     TIMESTAMPTZ,
-    Job_Create_Process_uuid    VARCHAR(12) not null, -- In some sense the 'create' fields are not necessary. It may be used to see what process provided the input for the assigned process (for which the payload is).
-    Job_Create_Process_Name    VARCHAR(50) not null,
-    Job_Create_Process_Version VARCHAR(10) not null,
+    Job_Create_Process_uuid    VARCHAR(12) default '', -- In some sense the 'create' fields are not necessary. It may be used to see what process provided the input for the assigned process (for which the payload is).
+    Job_Create_Process_Name    VARCHAR(50) default '',
+    Job_Create_Process_Version VARCHAR(10) default '',
     Job_Assign_Timestamp       TIMESTAMPTZ,
     Job_Assign_Process_uuid    VARCHAR(12),
-    Job_Assign_Process_Name    VARCHAR(50),
-    Job_Assign_Process_Version VARCHAR(10),
+    Job_Assign_Process_Name    VARCHAR(50) not null,
+    Job_Assign_Process_Version VARCHAR(10) not null,
     Job_Assign_Process_Config  JSONB default '{}'
 );
 comment on column Job_Queue.job_Priority is 'Jobs are sorted based on this priority. Inherits from pipe_job_Queue. Defaults to 100, range of smallint.';
@@ -169,7 +181,7 @@ begin
 		loop
 			-- If pipe_job is updated to 'finished', find all 'follow-up' pipes with an order number 1 higher than this pipe
 			if get_pipe_order(a_pipe_job.pipe_id) = (order_num + 1) then
-				call create_entry_job(a_pipe_job.pipe_job_id, a_pipe_job.pipe_id, row_to_json(a_pipe_job)::jsonb);
+				call create_entry_job(a_pipe_job.pipe_job_id, a_pipe_job.pipe_id, a_pipe_job.pipe_job_priority, row_to_json(a_pipe_job)::jsonb);
 			end if;
 		end loop;
 		
@@ -179,9 +191,10 @@ begin
 	-- On insert, if it is a 'order 1' pipe, create a job for it.
 	-- All other pipe_jobs (with 'order > 1') will have to wait till all these are finished.
 	if TG_OP = 'INSERT' and get_pipe_order(new.pipe_id) = 1 then
-		call create_entry_job(new.pipe_job_id, new.pipe_id, row_to_json(new)::jsonb);
+		call create_entry_job(new.pipe_job_id, new.pipe_id, new.pipe_job_priority, row_to_json(new)::jsonb);
 	end if;
 
+	return null;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -199,12 +212,12 @@ insert into pipe_job_queue values
    (4, 50, 2, 100, false),
    (5, 65, 2, 100, false)
 
-   
+
  
 -- Create entry Job.
--- pipe_job_Id (part of a full request id process), pipe_id, payload
+-- pipe_job_Id (part of a full request id process), pipe_id, (pipe_)job_priority, payload
 create or replace
-PROCEDURE create_entry_job(INT, INT, jsonb) as $$
+PROCEDURE create_entry_job(INT, INT, smallint, jsonb) as $$
 declare
 	starting_process  pipeline_processes%ROWTYPE; 
 begin
@@ -213,9 +226,9 @@ begin
 
 	if not found then RAISE EXCEPTION 'McR Error! No process with process_order 1 could be found for the pipe `%`.', $2; end if;
 
-	insert into job_queue(pipe_job_Id, Pipe_Id, job_Payload, job_create_Process_uuid, Job_Create_Process_Name, Job_Create_Process_Version,
+	insert into job_queue(pipe_job_Id, Pipe_Id, job_Payload, job_priority, job_create_Process_uuid, Job_Create_Process_Name, Job_Create_Process_Version,
 			Job_Assign_Process_Name, Job_Assign_Process_Version, Job_Assign_Process_config)
-	values ($1, $2, $3, '', '', '', 
+	values ($1, $2, $4, $3, '', '', '', 
 			starting_process.process_name, starting_process.process_version, starting_process.process_configuration);
 end;
 $$ language plpgsql
@@ -250,7 +263,7 @@ end;
 $$ language plpgsql;
 
 -- pipe_id, process name, process version
-select get_next_process(2, '2_fifth_process', '2.2.0');
+select get_next_process(1, 'classification', '1.0.0');
 
 
 -- Create Job.
@@ -275,9 +288,9 @@ begin
    
     -- If all is well, create the new job.
 	insert into
-		job_queue(pipe_job_Id, Pipe_Id, job_Payload, job_set_size, job_create_Process_uuid, Job_Create_Process_Name, Job_Create_Process_Version,
+		job_queue(pipe_job_Id, Pipe_Id, job_priority, job_Payload, job_set_size, job_create_Process_uuid, Job_Create_Process_Name, Job_Create_Process_Version,
 				  Job_Assign_Process_Name, Job_Assign_Process_Version, Job_Assign_Process_config)
-	values (old_job.pipe_job_Id,  old_job.pipe_id,  $3,  $2, old_job.job_assign_process_uuid,  old_job.job_assign_process_name,  old_job.job_assign_process_version,
+	values (old_job.pipe_job_Id,  old_job.pipe_id,  old_job.job_priority,  $3,  $2, old_job.job_assign_process_uuid,  old_job.job_assign_process_name,  old_job.job_assign_process_version,
 			next_process.process_name,  next_process.process_version,  next_process.process_configuration);
 
 end;
@@ -396,6 +409,6 @@ $$ LANGUAGE plpgsql;
 select find_job('ldfjl', 'sdlfkj', 'first_process', '1.0.0');
 select find_job('ldfjl', 'sdlfkj', 'second_process', '1.5.2');
 
+-- Reset a bult of jobs
 update job_queue set job_assign_process_uuid = null where job_id > 10;
  
-

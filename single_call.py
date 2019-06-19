@@ -24,18 +24,14 @@ print('Running process uuid: {}, named "{}" of version "{}".'.
 def make_connection():
     return (psycopg2.connect("dbname=single_procedure_job_queue user=test_user password='test_user'"))
 
-def obtain_job(bulk_job_search):
+def obtain_job():
     conn = make_connection()
     curs = None
     try:
         curs = conn.cursor()
         curs.execute("START TRANSACTION ISOLATION LEVEL SERIALIZABLE;")
-        if bulk_job_search:
-            query = "SELECT find_batch_job('{}', '{}', '{}', '{}');".format(
+        query = "SELECT find_job('{}', '{}', '{}', '{}');".format(
             unique_uuid_code, server_name, PROCESS_NAME, PROCESS_VERSION)
-        else:
-            query = "SELECT find_job('{}', '{}', '{}', '{}');".format(
-                unique_uuid_code, server_name, PROCESS_NAME, PROCESS_VERSION)
 
         curs.execute(query)
         conn.commit()
@@ -59,17 +55,36 @@ def obtain_job(bulk_job_search):
             curs.close()
             conn.close()
 
-def create_job(my_job_id, job_batch_size, next_job_payload):
+def create_job(my_job_id, job_set_size, next_job_payload):
     conn = make_connection()
     curs = None
     try:
         curs = conn.cursor()
-        query = "CALL create_job('{}', '{}', '{}');".format(my_job_id, job_batch_size, next_job_payload)
+        query = "CALL create_job('{}', '{}', '{}');".format(my_job_id, job_set_size, next_job_payload)
         curs.execute(query)
         conn.commit()
 
     except KeyError as e:
         print('The fired job_request did not return a value. An error occurred when fetching the job request. Error:\n{}'.format(e))
+    except psycopg2.OperationalError as e:
+        print('A "psycopg2.OperationalError" is fired on CREATE_JOB operation! This is unexpected... The following error msg is associated:')
+        print(e)
+    except Exception as e:
+        print('An error occurred during a job request.')
+        print(e)
+    finally:
+        if (conn):
+            curs.close()
+            conn.close()
+
+def mark_pipe_job_finished(pipe_job_id):
+    conn = make_connection()
+    curs = None
+    try:
+        curs = conn.cursor()
+        query = "update pipe_job_queue set pipe_job_finished = true where pipe_job_id = {};".format(pipe_job_id)
+        curs.execute(query)
+        conn.commit()
     except psycopg2.OperationalError as e:
         print('A "psycopg2.OperationalError" is fired on CREATE_JOB operation! This is unexpected... The following error msg is associated:')
         print(e)
@@ -92,15 +107,14 @@ def listen():
     while 1:
         try:
             ### find job ###
-            if PROCESS_NAME == 'third_process':
-                my_job = obtain_batch_job()
-            else:
-                my_job = obtain_job()
+            my_job = obtain_job()
 
-            # first_process,  starts many heavy tasks /// \\\
-            # second_process, processes a heavy task |||   |||
-            # third_process,  gathers the batch jobs  \\\ ///
-            #              and upload on final place   {*,*}
+            # assigner,            starts many heavy tasks   ||||||
+            # wearing_compliance,  performs WC               ||||||
+            #              , and creates classif jobs       ///  \\\
+            # classification, classifies                   |||    |||
+            # movemonitor,  gathers the batch jobs          \\\  ///
+            #              and upload on final place         {*,*}
 
             if my_job:
                 # When no job is found, wait 5 seconds and try again.
@@ -127,21 +141,21 @@ def listen():
                              '\nThe following was received:\n{}\nWith error message:\n{}'.format(my_job, err))
 
                 print('SUCCESS!!\nWe received the following payload and could convert it to a json structure.\n\n{}'.format(process_input))
-                time.sleep(random.random())
+                time.sleep(random.random()*5)
 
                 ### Roundup ###
-                if PROCESS_NAME == 'first_process':
+                if PROCESS_NAME == 'wearing_compliance':
                     # After 1 is finished processing:
-                    create_job(process_input['job_id'], '{"new_payload": "first payload!!."}')
-                    create_job(process_input['job_id'], '{"new_payload": "second payload!!."}')
-                    create_job(process_input['job_id'], '{"new_payload": "third payload!!."}')
-                    create_job(process_input['job_id'], '{"new_payload": "fourth payload!!."}')
-                elif PROCESS_NAME == 'third_process' or PROCESS_NAME == 'sixed_process':
+                    create_job(process_input['job_id'], '{"new_payload": "first payload!!"}')
+                    create_job(process_input['job_id'], '{"new_payload": "second payload!!"}')
+                    create_job(process_input['job_id'], '{"new_payload": "third payload!!"}')
+                    create_job(process_input['job_id'], '{"new_payload": "fourth payload!!"}')
+                elif PROCESS_NAME == 'communicator' or PROCESS_NAME == 'sixed_process':
                     # last process should fire pipe finish.
-                    pass
+                    mark_pipe_job_finished(process_input['pipe_job_id'])
                 else:
                     # For any other process:
-                    create_job(['job_id'], '{"new_payload": "The payload for the next job is here."}')
+                    create_job(process_input['job_id'], '{"new_payload": "The payload for the next job is here."}')
 
             if my_job is None:
                 raise McRoberts_Exception('An obtain_job call was initiated, but no value was returned for process {} '
