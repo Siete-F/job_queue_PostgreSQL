@@ -32,7 +32,7 @@ CREATE TABLE Pipeline_processes (
 
 
 -- Create pipeline process view
--- (Rewrote al things that depended on this view)
+-- (Rewrote al things that depended on this view, nothing depends on it anymore)
 CREATE OR REPLACE VIEW public.pipeline_process_order
 AS SELECT pl.pipe_id,
     pl.pipe_name,
@@ -47,6 +47,8 @@ AS SELECT pl.pipe_id,
 -- Permissions
 ALTER TABLE public.pipeline_process_order OWNER TO test_user;
 GRANT ALL ON TABLE public.pipeline_process_order TO test_user;
+
+
 
 
 -- Insert some values
@@ -81,10 +83,17 @@ CREATE TABLE pipe_job_Queue (
     Request_Id                 INT,
     Pipe_Id                    INT,
     pipe_job_Priority          smallint default 100,   -- The priority on which jobs are sorted.
-    pipe_job_finished          BOOL default false
+    pipe_job_finished          BOOL not null default false
 );
+
 comment on column pipe_job_Queue.pipe_job_Priority is 'Jobs are sorted based on this priority. Defaults to 100, range of smallint.';
 
+ -- Insert some values
+insert into pipe_job_queue values 
+   (1, 50, 1, 100, false), 
+   (2, 50, 1, 100, false),
+   (3, 50, 2, 100, false)
+  
 -- Job Queue table
 CREATE TABLE Job_Queue (
     Job_Id                     SERIAL primary key,
@@ -95,8 +104,8 @@ CREATE TABLE Job_Queue (
     job_Priority               smallint default 100,   -- The priority on which jobs are sorted.
     job_finished               BOOL default null,      -- with null, we could use 'false' as 'aborted' or 'crashed'.
     Job_Create_Timestamp       TIMESTAMPTZ default current_timestamp,
-    Job_Finished_Timestamp     TIMESTAMPTZ default current_timestamp,
-    Job_Create_Process_uuid    VARCHAR(12) not null,
+    Job_Finished_Timestamp     TIMESTAMPTZ,
+    Job_Create_Process_uuid    VARCHAR(12) not null, -- In some sense the 'create' fields are not necessary. It may be used to see what process provided the input for the assigned process (for which the payload is).
     Job_Create_Process_Name    VARCHAR(50) not null,
     Job_Create_Process_Version VARCHAR(10) not null,
     Job_Assign_Timestamp       TIMESTAMPTZ,
@@ -121,19 +130,81 @@ comment on column Job_Queue.job_set_size is 'The priority on which jobs are sort
             -- stored procedures --
 -------------------------------------------------------------------------------------
 
+CREATE OR REPLACE FUNCTION get_pipe_order(in int, out p_order int)
+AS $$
+begin
+	if $1 is null then RAISE EXCEPTION 'McR Error! A null was received as input in `get_pipe_order` postgreSQL function.'; end if;
+	select pipe_order into p_order from pipelines where pipe_id = $1;
+end;
+$$ language plpgsql;
 
--- Create initial job (this is not performed using a Stored Procedure)
--- The 'Create_job' procedure that follows below covers only the creation of jobs by processes that are processing a job.
-
-call create_entry_job(99, 1);  -- request, pipe_id
-call create_entry_job(100, 2);  -- request, pipe_id
-call create_entry_job(101, 1);  -- request, pipe_id
 
 
+CREATE OR REPLACE FUNCTION create_or_finish_pipe_job()
+    RETURNS trigger
+    AS $$
+declare
+	a_pipe_job     record;
+	order_num  smallint;
+    next_pipe  record;
+begin
+	select get_pipe_order(new.pipe_id) into order_num;
+
+	if NEW.pipe_job_finished = True then
+		if TG_OP = 'INSERT' then raise exception 'A pipe_job has been inserted in the `pipe_job_queue`, but the status is already set to finished. This is not allowed'; end if;
+		-- So we are dealing with an updated pipe_job record with a pipe_job_finished field with 'true'
+		-- If all similar order pipe_jobs for this request are processed, we may launch the next pipe_order processes
+		if not (select bool_and(pipe_job_finished) 
+					from pipe_job_queue pjq 
+					join pipelines pl on pjq.pipe_id = pl.pipe_id 
+					where request_id = new.request_id
+					and pipe_order = order_num
+					group by request_id) then
+			-- not all pipes of this order are finished yet for this request.
+			return new;
+		end if;
+		
+		for a_pipe_job in 
+			select * from pipe_job_queue where request_id = new.request_id
+		loop
+			-- If pipe_job is updated to 'finished', find all 'follow-up' pipes with an order number 1 higher than this pipe
+			if get_pipe_order(a_pipe_job.pipe_id) = (order_num + 1) then
+				call create_entry_job(a_pipe_job.pipe_job_id, a_pipe_job.pipe_id, row_to_json(a_pipe_job)::jsonb);
+			end if;
+		end loop;
+		
+	    return new;
+	end if;
+
+	-- On insert, if it is a 'order 1' pipe, create a job for it.
+	-- All other pipe_jobs (with 'order > 1') will have to wait till all these are finished.
+	if TG_OP = 'INSERT' and get_pipe_order(new.pipe_id) = 1 then
+		call create_entry_job(new.pipe_job_id, new.pipe_id, row_to_json(new)::jsonb);
+	end if;
+
+END;
+$$ LANGUAGE plpgsql;
+
+
+CREATE TRIGGER create_or_finish_pipe_job
+  AFTER insert or UPDATE of pipe_job_finished ON pipe_job_Queue
+  FOR EACH ROW
+  EXECUTE PROCEDURE create_or_finish_pipe_job();
+ 
+-- update a value:
+update pipe_job_queue set pipe_job_finished = true where pipe_job_id = 1;
+
+ -- Insert some values
+insert into pipe_job_queue values
+   (4, 50, 2, 100, false),
+   (5, 65, 2, 100, false)
+
+   
+ 
 -- Create entry Job.
--- pipe_job_Id, pipe_id
+-- pipe_job_Id (part of a full request id process), pipe_id, payload
 create or replace
-PROCEDURE create_entry_job(INT, INT) as $$
+PROCEDURE create_entry_job(INT, INT, jsonb) as $$
 declare
 	starting_process  pipeline_processes%ROWTYPE; 
 begin
@@ -144,10 +215,15 @@ begin
 
 	insert into job_queue(pipe_job_Id, Pipe_Id, job_Payload, job_create_Process_uuid, Job_Create_Process_Name, Job_Create_Process_Version,
 			Job_Assign_Process_Name, Job_Assign_Process_Version, Job_Assign_Process_config)
-	values ($1, $2, '{}', '', '', '', 
+	values ($1, $2, $3, '', '', '', 
 			starting_process.process_name, starting_process.process_version, starting_process.process_configuration);
 end;
 $$ language plpgsql
+
+-- pipe_job_Id, pipe_id
+call create_entry_job(99, 1, '{}'::jsonb);
+call create_entry_job(100, 2, '{}'::jsonb);
+call create_entry_job(101, 1, '{}'::jsonb);
 
 
 
@@ -170,14 +246,15 @@ begin
 	    	   	
 	-- Check if a followup process was found.
 	if not found then RAISE EXCEPTION 'McR Error! No process found for pipe `%` process name `%` process version `%` in table `pipeline_processes`.', $1, $2, $3; end if;
-
 end;
 $$ language plpgsql;
 
+-- pipe_id, process name, process version
 select get_next_process(2, '2_fifth_process', '2.2.0');
 
 
 -- Create Job.
+-- This 'Create_job' procedure covers only the creation of jobs by processes for processes. The first job needs to be triggered otherwise.
 -- set size: if 2, the next process will only be assigned this (and it's companion job) if both are finished.
 -- job_id, set size, Payload
 create or replace PROCEDURE create_job(INT, INT, JSONB)
@@ -217,59 +294,6 @@ CALL create_job(1, 1, '{}');
 --- But where would I then leave the payload of all the jobs that were not 'the last job' and did not have the priveledge to create this job...
 --- To solve this problem I will work with a 'job_set_size' which indicates how many jobs make a 'single input' when they are all untaken/unfinished.
 ------------
-
--- Create Job. Fired many times, only succeeds when last job is finished.
--- job_id
---create or replace PROCEDURE create_batch_combine_job(INT)
---as $$
---declare
---	old_job         job_queue%ROWTYPE; 
---	all_jobs        job_queue%ROWTYPE; 
---	next_process    pipeline_processes%ROWTYPE; 
---begin
---	-- Update just executed job:
---	update job_queue set job_finished = true where job_id = $1;
---	commit;
---
---	-- Obtain my job info:
---	select * into old_job from job_queue where job_id = $1;
---	
---	-- Obtain all batch jobs (can also be one).
---	select * into all_jobs from job_queue
---		where pipe_job_Id = old_job.pipe_job_Id
---		and pipe_id = old_job.pipe_id
---		and job_assign_process_name = old_job.job_assign_process_name;
---	
---	-- If not all finished, do nothing!!:
---	-- (bool_and  is some kind of 'all' function)
---	if all_jobs is null or 
---			not bool_and(all_jobs.job_finished) then
---		return;
---	end if;
---
---	-- Find process that needs to follow-up on this job:
---	select get_next_process(old_job.pipe_id, old_job.Job_assign_Process_Name, 
---		old_job.Job_assign_Process_Version) into next_process;
-----	select * into next_process from pipeline_processes
-----	       where pipe_Id = old_job.pipe_id 
-----	       and process_order = (
-----	       		select process_order + 1 from pipeline_processes
-----		       		where pipe_Id = old_job.pipe_id
-----		       		and   process_name    = old_job.Job_assign_Process_Name
-----	    	   		and   process_version = old_job.Job_assign_Process_Version);
---
---    -- If all is well, create the new job.
---	insert into
---		job_queue(pipe_job_Id, Pipe_Id, job_Payload, job_create_Process_uuid, Job_Create_Process_Name, Job_Create_Process_Version,
---		Job_Assign_Process_Name, Job_Assign_Process_Version, Job_Assign_Process_config)
---	values (old_job.pipe_job_Id,  old_job.pipe_id,  row_to_json(all_jobs),  old_job.job_assign_process_uuid,  old_job.job_assign_process_name,  old_job.job_assign_process_version, 
---			next_process.process_name,  next_process.process_version,  next_process.process_configuration);
---
---end;
---$$ language plpgsql;
---
---
---call find_batch_combine_job(5);
 
 
 -- Inserts a heartbeat of a containerHash or updates it.
