@@ -10,7 +10,7 @@ import psycopg2
 import psycopg2.extensions
 
 PROCESS_NAME     = 'first_process'
-PROCESS_VERSION  = '1.0.0'
+PROCESS_VERSION  = '1.9.2'
 # If this script is called from the commandline, it expects 2 input arguments
 if sys.stdin.isatty():
     PROCESS_NAME    = sys.argv[1]
@@ -111,8 +111,8 @@ def listen():
 
             # assigner,            starts many heavy tasks   ||||||
             # wearing_compliance,  performs WC               ||||||
-            #              , and creates classif jobs       ///  \\\
-            # classification, classifies                   |||    |||
+            #              and creates classif jobs         ///  \\\
+            # classification, classifies stuff             |||    |||
             # movemonitor,  gathers the batch jobs          \\\  ///
             #              and upload on final place         {*,*}
 
@@ -122,8 +122,8 @@ def listen():
                     continue
 
                 if my_job == 'No job found':
-                    print('No jobs were found, searching for jobs again in 1 second for process "{}".'.format(unique_uuid_code))
-                    time.sleep(1)
+                    print('No jobs found, process name "{}", version "{}", uuid "{}".'.format(PROCESS_NAME, PROCESS_VERSION, unique_uuid_code))
+                    time.sleep(2)
                     continue
 
                 # If a 'kill' command was send, stop processing.
@@ -140,22 +140,22 @@ def listen():
                     raise McRoberts_Exception('The job content could not be interpreted as json string.'
                              '\nThe following was received:\n{}\nWith error message:\n{}'.format(my_job, err))
 
-                print('SUCCESS!!\nWe received the following payload and could convert it to a json structure.\n\n{}'.format(process_input))
+                print('SUCCESS!!\nWe received a payload with {} elements and could convert it to a json structure.\n\n{}'.format(len(process_input), process_input))
                 time.sleep(random.random()*5)
 
                 ### Roundup ###
                 if PROCESS_NAME == 'wearing_compliance':
                     # After 1 is finished processing:
-                    create_job(process_input['job_id'], '{"new_payload": "first payload!!"}')
-                    create_job(process_input['job_id'], '{"new_payload": "second payload!!"}')
-                    create_job(process_input['job_id'], '{"new_payload": "third payload!!"}')
-                    create_job(process_input['job_id'], '{"new_payload": "fourth payload!!"}')
+                    create_job(process_input[0]['job_id'], '{"new_payload": "first payload!!"}')
+                    create_job(process_input[0]['job_id'], '{"new_payload": "second payload!!"}')
+                    create_job(process_input[0]['job_id'], '{"new_payload": "third payload!!"}')
+                    create_job(process_input[0]['job_id'], '{"new_payload": "fourth payload!!"}')
                 elif PROCESS_NAME == 'communicator' or PROCESS_NAME == 'sixed_process':
                     # last process should fire pipe finish.
-                    mark_pipe_job_finished(process_input['pipe_job_id'])
+                    mark_pipe_job_finished(process_input[0]['pipe_job_id'])
                 else:
                     # For any other process:
-                    create_job(process_input['job_id'], '{"new_payload": "The payload for the next job is here."}')
+                    create_job(process_input[0]['job_id'], '{"new_payload": "The payload for the next job is here."}')
 
             if my_job is None:
                 raise McRoberts_Exception('An obtain_job call was initiated, but no value was returned for process {} '

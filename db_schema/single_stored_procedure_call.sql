@@ -71,8 +71,8 @@ insert into pipeline_processes (pipe_id, process_name, process_version, process_
    (3, 'assigner',           '1.0.0', 1),
    (3, 'wc_upload',        '1.0.0', 3);
 insert into pipeline_processes (pipe_id, process_name, process_version, process_order) values
-   (4, 'sumarizing_results', '1.5.2', 2),
-   (4, 'creating_report',      '1.0.0', 3);
+   (4, 'sumarizing_results', '1.5.2', 1),
+   (4, 'creating_report',      '1.0.0', 2);
 
 -- Process handling
 -- Heartbeats table, every process creates or updates it heartbeat timestamp via a stored procedure 'send_heartbeat'
@@ -105,7 +105,8 @@ insert into pipe_job_queue values
    (3, 50, 4, 90, false),  -- An order 2 pipe_id
    (4, 45, 1, 200, false),
    (5, 50, 2, 90, false);
-  
+-- update job_queue set job_assign_process_uuid = null where pipe_id = 2;
+
 -- Job Queue table
 CREATE TABLE Job_Queue (
     Job_Id                     SERIAL primary key,
