@@ -290,6 +290,20 @@ $$ language plpgsql;
 
 
 
+-- Roundup pipe.
+-- Last pipe process fires this procedure
+-- pipe_job_id, job_id
+create or replace PROCEDURE finish_pipe(INT, INT)
+as $$
+begin
+	-- Update job and pipe:
+	update job_queue set job_finished = true, job_finished_timestamp = current_timestamp where job_id = $2;
+	update pipe_job_queue set pipe_job_finished = true where pipe_job_id = $1;
+end;
+$$ language plpgsql;
+
+
+
 ------------
 --- I could have created a (set or) batch  gather job, which is then only created when all other jobs are also finished
 --- But where would I then leave the payload of all the jobs that were not 'the last job' and did not have the priveledge to create this job...
@@ -414,10 +428,10 @@ $$ LANGUAGE plpgsql;
 insert into pipe_job_queue values 
    (1, 50, 1, 100, false), 
    (2, 50, 4, 90, false),  -- An order 2 pipe_id
-   (4, 45, 1, 200, false),
-   (5, 50, 2, 90, false);
--- Pipe 1, 4 and 5 should be processed first, if 1 and 5 are finished, 2 will be processed.
--- During this process, 5 is prioritized above 1 and 1 above 4.
+   (3, 45, 1, 200, false),
+   (4, 50, 2, 90, false);
+-- Pipe 1, 3 and 4 should be processed first, if 1 and 4 are finished, 2 will be processed.
+-- During this process, 4 is prioritized above 1 and 1 above 3.
 
 -- RESET EXAMPLE:
 -- truncate job_queue; truncate pipe_job_queue;

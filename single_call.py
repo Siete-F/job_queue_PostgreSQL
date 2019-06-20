@@ -38,7 +38,7 @@ def obtain_job(multi_job_process):
     except KeyError as e:
         print('An error occurred when fetching the job request. Containing:\n{}'.format(e))
     except psycopg2.OperationalError as e:
-        print('A "psycopg2.OperationalError" is fired. This is okey since it is a side effect of preventing the race condition.')
+        # print('A "psycopg2.OperationalError" is fired. This is okey since it is a side effect of preventing the race condition.')
               # 'processes to pick up the same job. The following error msg is associated:\n{}'.format(e))
         return 'retry'
     except Exception as e:
@@ -75,12 +75,12 @@ def create_job(my_job_id, job_set_size, next_job_payload):
             curs.close()
             conn.close()
 
-def mark_pipe_job_finished(pipe_job_id):
+def mark_pipe_job_finished(pipe_job_id, job_id):
     conn = make_connection()
     curs = None
     try:
         curs = conn.cursor()
-        query = "update pipe_job_queue set pipe_job_finished = true where pipe_job_id = {};".format(pipe_job_id)
+        query = "CALL finish_pipe('{}', '{}');".format(pipe_job_id, job_id)
         curs.execute(query)
         conn.commit()
     except psycopg2.OperationalError as e:
@@ -120,8 +120,8 @@ def listen():
                     continue
 
                 if my_job.lower() == 'no job found':
-                    print('No jobs found, process name "{}", version "{}", uuid "{}".'.format(PROCESS_NAME, PROCESS_VERSION, unique_uuid_code))
-                    time.sleep(2)
+                    print('No jobs, {} {} {}.'.format(PROCESS_NAME, PROCESS_VERSION, unique_uuid_code))
+                    time.sleep(5)
                     continue
 
                 # If a 'kill' command was send, stop processing.
@@ -138,7 +138,7 @@ def listen():
                     raise McRoberts_Exception('The job content could not be interpreted as json string.'
                              '\nThe following was received:\n{}\nWith error message:\n{}'.format(my_job, err))
 
-                print('SUCCESS!!\nWe received a payload with {} elements and could convert it to a json structure.\n\n{}'.format(len(process_input), process_input))
+                print('received {} payloads from jobs {}.'.format(len(process_input), ','.join([str(o['job_id']) + ' ' + o['job_create_process_name'] for o in process_input])))
                 time.sleep(random.random()*10)
 
                 ### Roundup ###
@@ -150,7 +150,7 @@ def listen():
                     create_job(process_input[0]['job_id'], 4, '{"new_payload": "fourth payload!!"}')
                 elif PROCESS_NAME in ['movemonitor', 'third_process', 'wc_upload', 'creating_report']:
                     # last process should fire pipe finish.
-                    mark_pipe_job_finished(process_input[0]['pipe_job_id'])
+                    mark_pipe_job_finished(process_input[0]['pipe_job_id'], process_input[0]['job_id'])
                 else:
                     # For any other process:
                     create_job(process_input[0]['job_id'], 1, '{"my_job_id": %1.0f}' % process_input[0]['job_id'])
