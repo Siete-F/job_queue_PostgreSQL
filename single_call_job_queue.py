@@ -105,9 +105,13 @@ def listen():
     while 1:
         try:
             ### find job ###
-            my_job = obtain_job(PROCESS_NAME in ['movemonitor'])  # if inside check is true, multiple jobs are expected (converging)
+            # For 'movemonitor' expect multiple jobs (converging activity, as described below)
+            my_job = obtain_job(PROCESS_NAME in ['movemonitor'])
 
-            # assigner,            starts many heavy tasks   ||||||
+            # In my imagination, the processes do something like this:
+            # (A much more detailed description can be found in README.md)
+
+            # assigner,    gathers som metadata              ||||||
             # wearing_compliance,  performs WC               ||||||
             #              and creates classif jobs         ///  \\\
             # classification, classifies stuff             |||    |||
