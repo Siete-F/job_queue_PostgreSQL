@@ -18,8 +18,6 @@ if sys.stdin.isatty():
 
 unique_uuid_code = uuid.uuid4().hex[0:12]
 server_name      = 'MyServer'
-print('Running process uuid: {}, named "{}" of version "{}".'.
-      format(unique_uuid_code, PROCESS_NAME, PROCESS_VERSION))
 
 def make_connection():
     return (psycopg2.connect("dbname=single_procedure_job_queue user=test_user password='test_user'"))
@@ -40,8 +38,8 @@ def obtain_job(multi_job_process):
     except KeyError as e:
         print('An error occurred when fetching the job request. Containing:\n{}'.format(e))
     except psycopg2.OperationalError as e:
-        print('A "psycopg2.OperationalError" is fired. This is okey since it is a side effect of preventing multiple '
-              'processes to pick up the same job. The following error msg is associated:\n{}'.format(e))
+        print('A "psycopg2.OperationalError" is fired. This is okey since it is a side effect of preventing the race condition.')
+              # 'processes to pick up the same job. The following error msg is associated:\n{}'.format(e))
         return 'retry'
     except Exception as e:
         print('An error occurred during a job request.')
@@ -150,12 +148,12 @@ def listen():
                     create_job(process_input[0]['job_id'], 4, '{"new_payload": "second payload!!"}')
                     create_job(process_input[0]['job_id'], 4, '{"new_payload": "third payload!!"}')
                     create_job(process_input[0]['job_id'], 4, '{"new_payload": "fourth payload!!"}')
-                elif PROCESS_NAME == 'communicator' or PROCESS_NAME == 'sixed_process':
+                elif PROCESS_NAME in ['movemonitor', 'third_process', 'wc_upload', 'creating_report']:
                     # last process should fire pipe finish.
                     mark_pipe_job_finished(process_input[0]['pipe_job_id'])
                 else:
                     # For any other process:
-                    create_job(process_input[0]['job_id'], 1, '{"new_payload": "The payload for the next job is here."}')
+                    create_job(process_input[0]['job_id'], 1, '{"my_job_id": %1.0f}' % process_input[0]['job_id'])
 
             if my_job is None:
                 raise McRoberts_Exception('An obtain_job call was initiated, but no value was returned for process {} '

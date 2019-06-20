@@ -98,14 +98,6 @@ CREATE TABLE pipe_job_Queue (
 
 comment on column pipe_job_Queue.pipe_job_Priority is 'Jobs are sorted based on this priority. Defaults to 100, range of smallint.';
 
- -- Insert some values
-insert into pipe_job_queue values 
-   (1, 50, 1, 100, false), 
-   (2, 50, 1, 150, false),
-   (3, 50, 4, 90, false),  -- An order 2 pipe_id
-   (4, 45, 1, 200, false),
-   (5, 50, 2, 90, false);
- -- update job_queue set job_assign_process_uuid = null where 1::bool;
 
 -- Job Queue table
 CREATE TABLE Job_Queue (
@@ -131,14 +123,6 @@ CREATE TABLE Job_Queue (
 comment on column Job_Queue.job_Priority is 'Jobs are sorted based on this priority. Inherits from pipe_job_Queue. Defaults to 100, range of smallint.';
 comment on column Job_Queue.Job_Create_Set_Size is 'The size of the batch that will be processed by a single instance of the assigned process.';
 comment on column Job_Queue.Job_Assign_Set_Size is 'The number of jobs that are created in parallel, to be analysed side by side.';
-
--- Create Jobs failed  (conceptual)
---create table Jobs_Failed (
---    job_failed_id         SERIAL primary key,
---    Job_Id                INT,
---    pipe_job_Id            INT,
---    Error_Message         VARCHAR(255)
---);
 
 
 -------------------------------------------------------------------------------------
@@ -208,15 +192,15 @@ CREATE TRIGGER create_or_finish_pipe_job
   EXECUTE PROCEDURE create_or_finish_pipe_job();
  
 -- update a value:
-update pipe_job_queue set pipe_job_finished = true where pipe_job_id = 1;
+-- update pipe_job_queue set pipe_job_finished = true where pipe_job_id = 1;
 
- -- Insert some values
-insert into pipe_job_queue values
-   (4, 50, 2, 100, false),
-   (5, 65, 2, 100, false)
+-- Insert some values
+--insert into pipe_job_queue values
+--   (1, 50, 2, 100, false),
+--   (2, 65, 2, 100, false)
 
 
- 
+
 -- Create entry Job.
 -- pipe_job_Id (part of a full request id process), pipe_id, (pipe_)job_priority, payload
 create or replace
@@ -237,9 +221,9 @@ end;
 $$ language plpgsql
 
 -- pipe_job_Id, pipe_id
-call create_entry_job(99, 1, '{}'::jsonb);
-call create_entry_job(100, 2, '{}'::jsonb);
-call create_entry_job(101, 1, '{}'::jsonb);
+--call create_entry_job(99, 1, '{}'::jsonb);
+--call create_entry_job(100, 2, '{}'::jsonb);
+--call create_entry_job(101, 1, '{}'::jsonb);
 
 
 
@@ -266,7 +250,8 @@ end;
 $$ language plpgsql;
 
 -- pipe_id, process name, process version
-select get_next_process(1, 'classification', '1.0.0');
+--select get_next_process(1, 'classification', '1.0.0');
+
 
 
 -- Create Job.
@@ -299,9 +284,10 @@ end;
 $$ language plpgsql;
 
 -- job id,  set size,   Payload
-CALL create_job(2, 1, '{}');
-CALL create_job(1, 2, '{}');
-CALL create_job(1, 1, '{}');
+--CALL create_job(2, 1, '{}');
+--CALL create_job(1, 2, '{}');
+--CALL create_job(1, 1, '{}');
+
 
 
 ------------
@@ -311,7 +297,6 @@ CALL create_job(1, 1, '{}');
 --- Because the diverging and converging of jobs spans over multiple jobs (A: split to 5 tasks, B: do 5 operations, C: pick up all 5 results by one process)
 --- we will have to work with 'Job_Create_Set_Size' and 'Job_Assign_Set_Size'
 ------------
-
 
 -- Inserts a heartbeat of a containerHash or updates it.
 create or replace
@@ -332,7 +317,6 @@ begin
 			last_beat_Timestamp = current_timestamp, process_bussy = False;
 end;
 $$ language plpgsql;
-
 
 
 
@@ -361,13 +345,13 @@ begin
 	end if;
 
 	output:= 'No job found';
-	if $4 then
+	if $5 then
 		-- This following query leaves out the 'pipe_id', this does not matter for a container that takes a job.
 		-- Find a single or batch of jobs that comes in a set, the size of `job_Create_set_size`.
 		-- take only 1 set when ordered on priority
 		select pipe_job_id, (count(pipe_job_id) = max(job_Create_set_size)) as full_set_present
 			into job_list from job_queue where 
-			job_assign_Process_uuid is null and
+			(job_assign_Process_uuid = '')  is not false and  -- True for '' and NULL, accepting '' makes it easier (and less hidden) to make a job available again.
 			job_assign_process_name =  $3 and
 		    job_assign_process_version = $4
 		   	group by pipe_job_id
@@ -379,49 +363,61 @@ begin
 		-- build-in: 'found', checks if 'previous query' returned any result.
 		if not found or not job_list.full_set_present then return; end if;
 	
+		-- This operation must happen seperately because we have to group above to make use of a limit 1.
+		-- A loop must be used because it is not possible to store multiple rows in a variable.
+		-- So here we obtain all the jobs related to the pipe_job_id and process we are ready to pick up.
+		FOR a_job in select * from job_queue where 
+				pipe_job_id = job_list.pipe_job_id and
+				job_assign_Process_uuid is null and
+				job_assign_process_name = $3 and
+			    job_assign_process_version = $4
+		loop
+			-- We are using array appending here:
+			my_jobs := my_jobs || a_job;
+			-- 'pick up' record by record:
+			update job_queue set 
+		    	job_assign_Process_uuid = $1, 
+		    	job_assign_timestamp = current_timestamp where
+		    	job_id = a_job.job_id and job_assign_Process_uuid is null;
+		end loop;
 	else
-		select * into job_list from job_queue where
-			job_assign_Process_uuid is null and
+		-- Finds a single job
+		select * into a_job from job_queue where
+			(job_assign_Process_uuid = '')  is not false and  -- True for '' and NULL, accepting '' makes it easier (and less hidden) to make a job available again.
 			job_assign_process_name = $3 and
 		    job_assign_process_version = $4
-		    order by job_priority, job_create_timestamp limit 1;
+		    order by job_priority, job_create_timestamp limit 1 for update;
 
 		-- RETURNs with 'No job found' if nothing found.
 		if not found then return; end if;
+		my_jobs := my_jobs || a_job;
+
+		update job_queue set 
+		    	job_assign_Process_uuid = $1, 
+		    	job_assign_timestamp = current_timestamp where
+		    	job_id = a_job.job_id and job_assign_Process_uuid is null;
 	end if;
 
-	-- A loop must be used because it is not possible to store multiple rows in a variable.
-	-- So here we obtain all the jobs related to the pipe_job_id and process we are ready to pick up.
-	FOR a_job in select * from job_queue where 
-			pipe_job_id = job_list.pipe_job_id and
-			job_assign_Process_uuid is null and
-			job_assign_process_name = $3 and
-		    job_assign_process_version = $4
-	loop
-		-- We are using array appending here:
-		my_jobs := my_jobs || a_job;
-		-- 'pick up' record by record:
-		update job_queue set 
-	    	job_assign_Process_uuid = $1, 
-	    	job_assign_timestamp = current_timestamp where
-	    	job_id = a_job.job_id and job_assign_Process_uuid is null;
-	end loop;
-    
 	-- Set process heartbeat bussy to TRUE (for now, this is nothing more than an indication).
 	update process_heartbeats set process_bussy = true where Process_uuid = $1;
 	
-	-- The 'job_queue' is queried again to obtain the latest and just updated job content.
+	-- the updates performed within this operation are not included in the content of the json that is returned.
 	output := array_to_json(my_jobs)::text;
-	return;
 
 END;
 $$ LANGUAGE plpgsql;
 
 
--- UUID, server_name, process_name, process_version
-select find_job('ldfjl', 'sdlfkj', 'first_process', '1.0.0');
-select find_job('ldfjl', 'sdlfkj', 'second_process', '1.5.2');
+----- EXAMPLE INPUT ------
 
--- Reset a bult of jobs
-update job_queue set job_assign_process_uuid = null where job_id > 10;
- 
+-- The whole chain of processes start with a pipe_job_queue insert:
+insert into pipe_job_queue values 
+   (1, 50, 1, 100, false), 
+   (2, 50, 4, 90, false),  -- An order 2 pipe_id
+   (4, 45, 1, 200, false),
+   (5, 50, 2, 90, false);
+-- Pipe 1, 4 and 5 should be processed first, if 1 and 5 are finished, 2 will be processed.
+-- During this process, 5 is prioritized above 1 and 1 above 4.
+
+-- RESET EXAMPLE:
+-- truncate job_queue; truncate pipe_job_queue;
