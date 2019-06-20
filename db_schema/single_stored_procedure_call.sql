@@ -105,7 +105,7 @@ insert into pipe_job_queue values
    (3, 50, 4, 90, false),  -- An order 2 pipe_id
    (4, 45, 1, 200, false),
    (5, 50, 2, 90, false);
--- update job_queue set job_assign_process_uuid = null where pipe_id = 2;
+ -- update job_queue set job_assign_process_uuid = null where 1::bool;
 
 -- Job Queue table
 CREATE TABLE Job_Queue (
@@ -113,22 +113,24 @@ CREATE TABLE Job_Queue (
     pipe_job_Id                INT,
     Pipe_Id                    INT,
     job_Payload                JSONB default '{}',     -- A binairy representation of the inserted JSON object
-    job_set_size               INT default 1,          -- If 1, will be picked up if done, if x (>1), x jobs must be created and unassigned/unfinished to be picked up all at once.
     job_Priority               smallint default 100,   -- The priority on which jobs are sorted.
     job_finished               BOOL default null,      -- with null, we could use 'false' as 'aborted' or 'crashed'.
     Job_Create_Timestamp       TIMESTAMPTZ default current_timestamp,
     Job_Finished_Timestamp     TIMESTAMPTZ,
-    Job_Create_Process_uuid    VARCHAR(12) default '', -- In some sense the 'create' fields are not necessary. It may be used to see what process provided the input for the assigned process (for which the payload is).
-    Job_Create_Process_Name    VARCHAR(50) default '',
+    Job_Create_Process_uuid    VARCHAR(12) default '', -- In some sense the 'create' fields are not necessary. It may be used to see what process provided the ...
+    Job_Create_Set_Size        INT default 1,          -- If 1, will be picked up if done, if x (>1), x jobs must be created and unassigned/unfinished to be picked up all at once.
+    Job_Create_Process_Name    VARCHAR(50) default '', --    input for the assigned process (for which the payload is). This can then easily be included if the payload is not as expected.
     Job_Create_Process_Version VARCHAR(10) default '',
     Job_Assign_Timestamp       TIMESTAMPTZ,
     Job_Assign_Process_uuid    VARCHAR(12),
+    job_Assign_Set_Size        INT default 1,          -- see comment.
     Job_Assign_Process_Name    VARCHAR(50) not null,
     Job_Assign_Process_Version VARCHAR(10) not null,
     Job_Assign_Process_Config  JSONB default '{}'
 );
 comment on column Job_Queue.job_Priority is 'Jobs are sorted based on this priority. Inherits from pipe_job_Queue. Defaults to 100, range of smallint.';
-comment on column Job_Queue.job_set_size is 'The priority on which jobs are sorted. Defaults to 100.';
+comment on column Job_Queue.Job_Create_Set_Size is 'The size of the batch that will be processed by a single instance of the assigned process.';
+comment on column Job_Queue.Job_Assign_Set_Size is 'The number of jobs that are created in parallel, to be analysed side by side.';
 
 -- Create Jobs failed  (conceptual)
 --create table Jobs_Failed (
@@ -279,7 +281,6 @@ declare
 begin
 	-- Update previous job:
 	update job_queue set job_finished = true, job_finished_timestamp = current_timestamp where job_id = $1;
-	commit;
 
 	-- Obtain previous job:
 	select * into old_job from job_queue where job_id = $1;
@@ -289,9 +290,9 @@ begin
    
     -- If all is well, create the new job.
 	insert into
-		job_queue(pipe_job_Id, Pipe_Id, job_priority, job_Payload, job_set_size, job_create_Process_uuid, Job_Create_Process_Name, Job_Create_Process_Version,
+		job_queue(pipe_job_Id, Pipe_Id, job_priority, job_Payload, Job_Create_Set_Size, Job_Assign_Set_Size, job_create_Process_uuid, Job_Create_Process_Name, Job_Create_Process_Version,
 				  Job_Assign_Process_Name, Job_Assign_Process_Version, Job_Assign_Process_config)
-	values (old_job.pipe_job_Id,  old_job.pipe_id,  old_job.job_priority,  $3,  $2, old_job.job_assign_process_uuid,  old_job.job_assign_process_name,  old_job.job_assign_process_version,
+	values (old_job.pipe_job_Id,  old_job.pipe_id,  old_job.job_priority,  $3,  old_job.Job_Assign_Set_Size,  $2,  old_job.job_assign_process_uuid,  old_job.job_assign_process_name,  old_job.job_assign_process_version,
 			next_process.process_name,  next_process.process_version,  next_process.process_configuration);
 
 end;
@@ -307,6 +308,8 @@ CALL create_job(1, 1, '{}');
 --- I could have created a (set or) batch  gather job, which is then only created when all other jobs are also finished
 --- But where would I then leave the payload of all the jobs that were not 'the last job' and did not have the priveledge to create this job...
 --- To solve this problem I will work with a 'job_set_size' which indicates how many jobs make a 'single input' when they are all untaken/unfinished.
+--- Because the diverging and converging of jobs spans over multiple jobs (A: split to 5 tasks, B: do 5 operations, C: pick up all 5 results by one process)
+--- we will have to work with 'Job_Create_Set_Size' and 'Job_Assign_Set_Size'
 ------------
 
 
@@ -340,8 +343,8 @@ $$ language plpgsql;
 
 -- Since we are working within a single transaction
 -- Trying 'function' approach: 
--- UUID, server_name, process_name, process_version
-CREATE OR REPLACE FUNCTION find_job(in VARCHAR(12), in VARCHAR(50), in VARCHAR(50), in VARCHAR(10),
+-- UUID, server_name, process_name, process_version, multi_job_process
+CREATE OR REPLACE FUNCTION find_job(in VARCHAR(12), in VARCHAR(50), in VARCHAR(50), in VARCHAR(10), in bool,
                                     out output varchar)
 returns varchar AS $$
 declare
@@ -357,27 +360,36 @@ begin
 		return;
 	end if;
 
-	-- This following query leaves out the 'pipe_id', this does not matter for a container that takes a job.
-	-- Find a single or batch of jobs that comes in a set, the size of `job_set_size`.
-	-- take only 1 set when ordered on priority
-	select pipe_job_id, (count(pipe_job_id) = max(job_set_size)) as all_ready
-		into job_list from job_queue where 
-		job_assign_Process_uuid is null and
-		job_assign_process_name =  $3 and
-	    job_assign_process_version = $4
-	   	group by pipe_job_id
-	   	order by all_ready desc,
-	   		min(job_priority),
-	   		max(job_create_timestamp)
-	    limit 1;
+	output:= 'No job found';
+	if $4 then
+		-- This following query leaves out the 'pipe_id', this does not matter for a container that takes a job.
+		-- Find a single or batch of jobs that comes in a set, the size of `job_Create_set_size`.
+		-- take only 1 set when ordered on priority
+		select pipe_job_id, (count(pipe_job_id) = max(job_Create_set_size)) as full_set_present
+			into job_list from job_queue where 
+			job_assign_Process_uuid is null and
+			job_assign_process_name =  $3 and
+		    job_assign_process_version = $4
+		   	group by pipe_job_id
+		   	order by full_set_present desc,
+		   		min(job_priority),
+		   		max(job_create_timestamp)
+		    limit 1;
 	   
-	-- build-in: 'found', checks if 'previous query' returned any result.
-	if not found or not job_list.all_ready then
-		output:= 'No job found';
-		return;
+		-- build-in: 'found', checks if 'previous query' returned any result.
+		if not found or not job_list.full_set_present then return; end if;
+	
+	else
+		select * into job_list from job_queue where
+			job_assign_Process_uuid is null and
+			job_assign_process_name = $3 and
+		    job_assign_process_version = $4
+		    order by job_priority, job_create_timestamp limit 1;
+
+		-- RETURNs with 'No job found' if nothing found.
+		if not found then return; end if;
 	end if;
 
-	-- This operation must happen seperately because we have to group above to make use of a limit 1.
 	-- A loop must be used because it is not possible to store multiple rows in a variable.
 	-- So here we obtain all the jobs related to the pipe_job_id and process we are ready to pick up.
 	FOR a_job in select * from job_queue where 

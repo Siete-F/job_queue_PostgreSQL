@@ -24,14 +24,14 @@ print('Running process uuid: {}, named "{}" of version "{}".'.
 def make_connection():
     return (psycopg2.connect("dbname=single_procedure_job_queue user=test_user password='test_user'"))
 
-def obtain_job():
+def obtain_job(multi_job_process):
     conn = make_connection()
     curs = None
     try:
         curs = conn.cursor()
         curs.execute("START TRANSACTION ISOLATION LEVEL SERIALIZABLE;")
-        query = "SELECT find_job('{}', '{}', '{}', '{}');".format(
-            unique_uuid_code, server_name, PROCESS_NAME, PROCESS_VERSION)
+        query = "SELECT find_job('{}', '{}', '{}', '{}', {});".format(
+            unique_uuid_code, server_name, PROCESS_NAME, PROCESS_VERSION, multi_job_process)
 
         curs.execute(query)
         conn.commit()
@@ -107,7 +107,7 @@ def listen():
     while 1:
         try:
             ### find job ###
-            my_job = obtain_job()
+            my_job = obtain_job(PROCESS_NAME in ['movemonitor'])  # if inside check is true, multiple jobs are expected (converging)
 
             # assigner,            starts many heavy tasks   ||||||
             # wearing_compliance,  performs WC               ||||||
@@ -121,13 +121,13 @@ def listen():
                 if my_job == 'retry':
                     continue
 
-                if my_job == 'No job found':
+                if my_job.lower() == 'no job found':
                     print('No jobs found, process name "{}", version "{}", uuid "{}".'.format(PROCESS_NAME, PROCESS_VERSION, unique_uuid_code))
                     time.sleep(2)
                     continue
 
                 # If a 'kill' command was send, stop processing.
-                if my_job == 'kill':
+                if my_job.lower() == 'kill':
                     print('The process has been terminated by a "KILL" notification.')
                     return
 
@@ -141,21 +141,21 @@ def listen():
                              '\nThe following was received:\n{}\nWith error message:\n{}'.format(my_job, err))
 
                 print('SUCCESS!!\nWe received a payload with {} elements and could convert it to a json structure.\n\n{}'.format(len(process_input), process_input))
-                time.sleep(random.random()*5)
+                time.sleep(random.random()*10)
 
                 ### Roundup ###
                 if PROCESS_NAME == 'wearing_compliance':
                     # After 1 is finished processing:
-                    create_job(process_input[0]['job_id'], '{"new_payload": "first payload!!"}')
-                    create_job(process_input[0]['job_id'], '{"new_payload": "second payload!!"}')
-                    create_job(process_input[0]['job_id'], '{"new_payload": "third payload!!"}')
-                    create_job(process_input[0]['job_id'], '{"new_payload": "fourth payload!!"}')
+                    create_job(process_input[0]['job_id'], 4, '{"new_payload": "first payload!!"}')
+                    create_job(process_input[0]['job_id'], 4, '{"new_payload": "second payload!!"}')
+                    create_job(process_input[0]['job_id'], 4, '{"new_payload": "third payload!!"}')
+                    create_job(process_input[0]['job_id'], 4, '{"new_payload": "fourth payload!!"}')
                 elif PROCESS_NAME == 'communicator' or PROCESS_NAME == 'sixed_process':
                     # last process should fire pipe finish.
                     mark_pipe_job_finished(process_input[0]['pipe_job_id'])
                 else:
                     # For any other process:
-                    create_job(process_input[0]['job_id'], '{"new_payload": "The payload for the next job is here."}')
+                    create_job(process_input[0]['job_id'], 1, '{"new_payload": "The payload for the next job is here."}')
 
             if my_job is None:
                 raise McRoberts_Exception('An obtain_job call was initiated, but no value was returned for process {} '
