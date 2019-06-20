@@ -1,7 +1,7 @@
 # job_queue_PostgreSQL
 This repository includes 2 proof of concepts that show how to create a job_queue database with PostgreSQL.
 
-In general, every pipeline (stored in `pipelines`) defines itself by a specific set of processes (stored in `pipeline_processes`). Processes might be reused (recycled) among pipeline definitions. If process 'A' of version 1.0.0 is used in pipe 'my_pipe' and also in 'my_sec_pipe', there is only need for one 'A' process of version '1.0.0' to run to cover all the jobs from both pipelines. Jobs for pipelines are stored in `pipe_job_queue`, which creates initial jobs in the (process interacting) job_queue. It is possible that pipes only defer by one 'process' (or module/package/service) in their pipe definition. But it is also possible that none of the processes are the same, where the pipeline is likely to perform a completely different operation.
+In general, every pipeline (stored in `pipelines`) defines itself by a specific set of processes (stored in `pipeline_processes`). Processes might be reused (recycled) among pipeline definitions. If process 'A' of version 1.0.0 is used in pipe 'my_pipe' and also in 'my_sec_pipe', there is only need for one 'A' process of version '1.0.0' to run somewhere on some server to cover all the jobs from both pipelines. Jobs for pipelines are stored in `pipe_job_queue`, which creates initial jobs in the (process interacting) `job_queue`. It is possible that pipes only defer by one 'process' (or module/package/service) in their pipe definition. But it is also possible that none of the processes are the same, where the pipeline is likely to perform a completely different operation.
 
 # First POC: Notify Listen job queue
 - `notify_listen_job_queue.py`
@@ -17,7 +17,8 @@ When a valid payload was received, the process will create a new job (the next j
 
 # Second POC: Single call job queue
 - `single_call_job_queue.py`
-- `single_stored_procedure_call`
+- `single_stored_procedure_call.sql`
+- `start_single_call_example_processes.ps1` (example material)
 
 Instead of using the PostgreSQL `NOTIFY/LISTEN` construct, we can also just create a database function (a stored procedure kind of construct which can return a value, in our case a `varchar`). This function, called from a process, returns the same kind of responses that were explained in the first POC.
 
@@ -37,4 +38,4 @@ The term 'pipeline' refers to the flow from process A to B to C, and does not re
 - `movemonitor`: Gathering the outcomes of the `classification` jobs and rounding up. This process fires of the `finish_pipe` stored procedure which will update the job and pipe_job 'finished' flag to `true`, which will then potentially trigger the next order pipe.
 
 ## Example POC 2:
-To execute the example, run the complete database script `.\db_schema\single_stored_procedure_call.sql` (I will leave installing  python 3.x/PostgreSQL and making a 'test_user' up to you). Then run `start_single_call_example_processes.ps1` to start many small instances which will pick up the jobs which were created by the `pipe_job_queue`. Everything that follows should happen automatically till all four `pipe_job_queue` pipe_job's are finished and many jobs are created and processed. To run the example again, run the `truncate` operation commented at the bottom of the sql script and run the insert query right above it. This will redo the complete process.
+To execute the example, run the complete database script `.\db_schema\single_stored_procedure_call.sql` (I will leave installing python 3.x/PostgreSQL and making a 'test_user' up to you). Then run `start_single_call_example_processes.ps1` to start many small instances which will pick up the jobs which were created by the `pipe_job_queue`. Everything that follows should happen automatically till all four `pipe_job_queue` pipe_job's are finished and many jobs are created and processed. To run the example again, run the `truncate` operation commented at the bottom of the sql script and run the insert query right above it. This will redo the complete process.
