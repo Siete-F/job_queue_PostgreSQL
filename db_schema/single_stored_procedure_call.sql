@@ -427,9 +427,9 @@ $$ LANGUAGE plpgsql;
 -- The whole chain of processes start with a pipe_job_queue insert:
 insert into pipe_job_queue values 
    (1, 50, 1, 100, false), 
-   (2, 50, 4, 90, false),  -- An order 2 pipe_id
+   (2, 50, 4, 90,  false),  -- An order 2 pipe_id
    (3, 45, 1, 200, false),
-   (4, 50, 2, 90, false);
+   (4, 50, 2, 90,  false);
 -- Pipe 1, 3 and 4 should be processed first, if 1 and 4 are finished, 2 will be processed.
 -- During this process, 4 is prioritized above 1 and 1 above 3.
 
