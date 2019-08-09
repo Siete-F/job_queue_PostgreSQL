@@ -1,10 +1,10 @@
 import sys
 import time
-import datetime
-import json
-import uuid
-import atexit
-import random
+# import datetime
+# import json
+# import uuid
+# import atexit
+# import random
 
 import psycopg2
 import psycopg2.extensions
@@ -15,7 +15,7 @@ if sys.stdin.isatty():
     PROCESS_NAME = sys.argv[1]
 
 def make_connection():
-    return (psycopg2.connect("dbname=single_procedure_job_queue user=test_user password='test_user'"))
+    return (psycopg2.connect("dbname=simultanious_job_pickup_test user=test_user password='test_user'"))
 
 def pickup_job():
     conn = make_connection()
@@ -29,8 +29,8 @@ def pickup_job():
         IDs = curs.fetchall()
 
         if IDs:
-            id_str = '[' + ','.join([str(x[0]) for x in IDs]) + ']'
-            query = "INSERT INTO job_queue_pickup_race (sample_ids, process_name) VALUES ('{}', '{}');".format(
+            id_str = 'ARRAY[' + ','.join([str(x[0]) for x in IDs]) + ']'
+            query = "INSERT INTO job_queue_pickup_race (sample_ids, process_name) VALUES ({}, '{}');".format(
                 id_str, PROCESS_NAME)
             curs.execute(query)
             conn.commit()

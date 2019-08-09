@@ -22,7 +22,7 @@ CREATE TABLE job_queue_pickup_count (
 );
 
 CREATE TABLE job_queue_pickup_race (
-    sample_ids           JSONB PRIMARY KEY,
+    sample_ids           integer ARRAY PRIMARY KEY,
     process_name         varchar(12),
     Timestamp            TIMESTAMP DEFAULT current_timestamp
 );
@@ -39,4 +39,6 @@ insert into job_queue_pickup_count (process_name) values
 ----- The check, values should be equal:
 
 SELECT C.process_name, R.count AS real_count, C.count AS comsumed_count FROM job_queue_pickup_count C JOIN (SELECT process_name, count(*) FROM job_queue_pickup_test GROUP BY process_name ORDER BY process_name) AS R ON C.process_name = R.process_name ORDER BY process_name;
+
+
 
