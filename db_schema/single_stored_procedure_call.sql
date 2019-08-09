@@ -6,6 +6,10 @@ ALTER database single_procedure_job_queue OWNER TO test_user;
 GRANT all ON DATABASE single_procedure_job_queue TO test_user;
 
 
+------------------------------------------------------------------------------------------------
+-- Working concept (when run in SERIALIZABLE transaction isolation level) --
+------------------------------------------------------------------------------------------------
+
 
 -- Pipeline definitions:
 CREATE TABLE Pipelines (
