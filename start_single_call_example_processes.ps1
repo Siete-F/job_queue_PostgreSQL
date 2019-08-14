@@ -1,11 +1,12 @@
 .\venv\Scripts\activate
 # pipe 1
-Start-Process -FilePath python.exe -WindowStyle normal -ArgumentList ".\single_call_job_queue.py", "wearing_compliance", "1.5.2"
-Start-Process -FilePath python.exe -WindowStyle normal -ArgumentList ".\single_call_job_queue.py", "classification", "1.0.0"
+Start-Process -FilePath python.exe -WindowStyle normal -ArgumentList ".\single_call_job_queue.py", "merging_results", "1.5.2"
+Start-Process -FilePath python.exe -WindowStyle normal -ArgumentList ".\single_call_job_queue.py", "merging_results", "1.5.2"
+Start-Process -FilePath python.exe -WindowStyle normal -ArgumentList ".\single_call_job_queue.py", "classification", "9.1.0"
 Start-Process -FilePath python.exe -WindowStyle normal -ArgumentList ".\single_call_job_queue.py", "classification", "1.0.0"
 Start-Process -FilePath python.exe -WindowStyle normal -ArgumentList ".\single_call_job_queue.py", "classification", "1.0.0"
 Start-Process -FilePath python.exe -WindowStyle normal -ArgumentList ".\single_call_job_queue.py", "assigner", "1.0.0"
-Start-Process -FilePath python.exe -WindowStyle normal -ArgumentList ".\single_call_job_queue.py", "movemonitor", "1.0.0"
+Start-Process -FilePath python.exe -WindowStyle normal -ArgumentList ".\single_call_job_queue.py", "uploader", "1.0.0"
 
 # pipe 2  (contains configurations)
 Start-Process -FilePath python.exe -WindowStyle normal -ArgumentList ".\single_call_job_queue.py", "first_process", "1.9.2"
