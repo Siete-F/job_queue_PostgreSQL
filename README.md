@@ -2,7 +2,7 @@
 This repository did include 2 proof of concepts that shows how to create a job_queue database with PostgreSQL (up till commit bc5047da).
 After that, I continued with a single concept because it proved better and the PostgreSQL notify/listen construct (where the other concept was based on) did not prove valuable.
 
-In general, every pipeline (stored in `pipelines`) defines itself by a specific set of processes (stored in `pipeline_processes`). Processes might be reused (recycled) among pipeline definitions. If process 'A' of version 1.0.0 is used in pipe 'my_pipe' and also in 'my_sec_pipe', there is only need for one 'A' process of version '1.0.0' to run somewhere on some server to cover all the jobs from both pipelines. Jobs for pipelines are stored in the `pipe_job_queue`. When a pipe_job is added there, it creates an initial job in the (process interacting) `job_queue`. It is possible that pipes only defer by one 'process' (or module/package/service) in their pipe definition. But it is also possible that none of the processes are the same, where the pipeline is likely to perform a completely different operation. In this repo a dummy process is provided by the name `single_call_job_queue.py` which is created to be able to run with a banner with a variaty of names and versions. A process only interacts with the job_queue table via PostgreSQL stored procedures. The different procedures, the heart of the job_queue workings, can be found in `db_schema/single_stored_procedure_call.sql`.
+In general, every pipeline (stored in `pipelines`) defines itself by a specific set of processes (stored in `pipeline_processes`). Processes might be reused (recycled) among pipeline definitions. If process 'A' of version 1.0.0 is used in pipe 'my_pipe' and also in 'my_sec_pipe', there is only need for one 'A' process of version '1.0.0' to run somewhere on some server to cover all the jobs from both pipelines. Jobs for pipelines are stored in the `pipe_job_queue`. When a pipe_job is added there, it creates an initial job in the (process interacting) `job_queue`. It is possible that pipes only defer by one 'process' (or module/package/service) in their pipe definition. But it is also possible that none of the processes are the same, where the pipeline is likely to perform a completely different operation. In this repo a dummy process is provided by the name `example_process.py` which is created to be able to run with a banner with a variaty of names and versions. A process only interacts with the job_queue table via PostgreSQL stored procedures. The different procedures, the heart of the job_queue workings, can be found in `db_schema/job_queue_database_schema.sql`.
 
 To eliminate the need for a 'service discovery feature', every process performs a `send_heardbeat` operation which tells the database that the process is still running and that it is ready to receive some job. To receive jobs from the database, the process calls a stored procedure in the database and provides his process name and process version. The PostgreSQL procedure performs the heartbeat operation and checks if a `job_queue` job is available. The procedure can respond in multiple ways:
 * `no job found` - Which tells the process to try again in a few seconds. The only effect that the process call had was to update the heartbeat.
@@ -26,10 +26,13 @@ The term 'pipeline' refers to the flow from process A to B to C, and does not re
 ## Examples:
 (I will leave installing python 3.x/PostgreSQL and making a 'test_user' for your local database up to you)
 
-NOTE: The following explanation is possible depricated since this is not based on the docker setup yet.
-To execute the example, run the complete database script `.\db_schema\single_stored_procedure_call.sql` . Then run `start_single_call_example_processes.ps1` to start many small instances which will pick up the jobs which were created by the `pipe_job_queue`. Everything that follows should happen automatically till all four `pipe_job_queue` pipe_job's are finished and many jobs are created and processed. To run the example again, run the `truncate` operation commented at the bottom of the sql script and run the `insert` query right above it. This will redo the complete process.
+To execute the example, run the complete database script `.\db_schema\job_queue_database_schema.sql`. Then there are 2 ways of setting it up:
+1. Run `docker-compose up` to create an environment with one container, the 'assigner', which will only pick up initial pipe_jobs but will make use of `fluentd`, `elasticsearch` and `Kibana` to create a nice logging experience.
+2. Run `example_process_launcher_in_docker.ps1` to start multiple containers. (I configured logging there, but I remember I didn't get it to work yet).
 
-NOTE: A docker example is in progress...
+The one or many processes will pick up the jobs which were created by the `pipe_job_queue` table in the `job_queue`. Everything that follows should happen automatically till all four `pipe_job_queue` pipe_job's are finished and many jobs are created and processed. To run the example again, run the `truncate` operation commented at the bottom of the sql script and run the `insert` query right above it. This will redo the complete process.
+
+NOTE: Didn't test both docker examples, but am committing them now as good as possible. Also changed name of 2 files from `single_procedure_job_queue.sql` to `job_queue_database_schema.sql` and `single_proce....py` to `example_process.py`.
 
 # Some quick notes related to the concept its behaviour:
 
@@ -63,7 +66,7 @@ In another configuration file (same folder: C:\Program Files\PostgreSQL\11\data\
 -- The 'host.docker.internal' refers to your localhost IP and is automatically created when installing docker. It can be used inside or outside the container context to connect to the local host (host where the docker deamon runs).
 
 Create and fill the file .env (the layout will probably look terrible due to the backticks. These must be included btw):
-- Run the following in powershell for a good template: echo "# PostgreSQL database credentials`nPGHOST=host.docker.internal`nPGUSER=test_user`nPGPASSWORD=test_user`nPGDATABASE=single_procedure_job_queue`n" > .env`
+- Run the following in powershell for a good template: echo "# PostgreSQL database credentials`nPGHOST=host.docker.internal`nPGUSER=test_user`nPGPASSWORD=test_user`nPGDATABASE=job_queue_database`n" > .env`
 
 Start the container:
 	`docker run -it --env-file=.env multifunctionalprocess`

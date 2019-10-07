@@ -18,12 +18,12 @@ WORKDIR /home/appuser
 USER appuser
 
 # Less time is required to rebuild the container if the most changing container parts are placed at the bottom.
-COPY single_call_job_queue.py /
+COPY example_process.py /
 
 ENV PROCESS_NAME    ${PROCESS_NAME:-first_process}
 ENV PROCESS_VERSION ${PROCESS_VERSION:-1.9.2}
 
-CMD [ "python", "/single_call_job_queue.py" ]
+CMD [ "python", "/example_process.py" ]
 
 # Alternative approach to the `requirements.txt` file:
 
