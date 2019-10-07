@@ -32,7 +32,7 @@ To execute the example, run the complete database script `.\db_schema\job_queue_
 
 The one or many processes will pick up the jobs which were created by the `pipe_job_queue` table in the `job_queue`. Everything that follows should happen automatically till all four `pipe_job_queue` pipe_job's are finished and many jobs are created and processed. To run the example again, run the `truncate` operation commented at the bottom of the sql script and run the `insert` query right above it. This will redo the complete process.
 
-NOTE: Didn't test both docker examples, but am committing them now as good as possible. Also changed name of 2 files from `single_procedure_job_queue.sql` to `job_queue_database_schema.sql` and `single_proce....py` to `example_process.py`.
+NOTE: Didn't test both docker examples, but am committing them now as good as possible. Also changed name of 2 files from `single_stored_procedure_call.sql` to `job_queue_database_schema.sql` and `single_call_job_queue.py` to `example_process.py`.
 
 # Some quick notes related to the concept its behaviour:
 

@@ -15,9 +15,9 @@
 create user test_user with encrypted password 'test_user';
 ------------------------------------
 -- create new db
-create database single_procedure_job_queue;
-ALTER database single_procedure_job_queue OWNER TO test_user;
-GRANT all ON DATABASE single_procedure_job_queue TO test_user;
+create database job_queue_database;
+ALTER database job_queue_database OWNER TO test_user;
+GRANT all ON DATABASE job_queue_database TO test_user;
 
 
 -- Pipeline definitions:
