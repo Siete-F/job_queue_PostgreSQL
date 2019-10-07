@@ -108,6 +108,7 @@ CREATE TABLE Pipe_Job_Queue (
     pipe_Job_Id                SERIAL primary key,
     Request_Id                 INT,
     Pipe_Id                    INT,
+    Pipe_Job_Init_Payload      JSONB default '{}',     -- A binairy representation of the inserted JSON object
     Pipe_Job_Priority          smallint default 100,   -- The priority on which jobs are sorted.
     Pipe_Job_finished          BOOL not null default false
 );
@@ -121,7 +122,7 @@ CREATE TABLE Job_Queue (
     Pipe_Id                     INT,
     Job_Parent_Set_Elements     INT ARRAY DEFAULT NULL,
     Job_Payload                 JSONB default '{}',     -- A binairy representation of the inserted JSON object
-    Job_Priority                smallint default 100,   -- The priority on which jobs are sorted. lower is more importand (currently... :) )
+    Job_Priority                smallint default 100,   -- The priority on which jobs are sorted. lower is more important (currently... :) )
     Job_Finished                BOOL default null,      -- with null, we could use 'false' as 'aborted' or 'crashed'.
     Job_Created_Timestamp       TIMESTAMPTZ default current_timestamp,
     Job_Finished_Timestamp      TIMESTAMPTZ,
