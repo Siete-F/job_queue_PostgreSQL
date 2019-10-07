@@ -1,0 +1,5 @@
+attrs==19.1.0
+jsonschema==3.0.2
+psycopg2==2.8.2
+pyrsistent==0.15.4
+six==1.12.0

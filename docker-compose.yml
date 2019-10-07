@@ -1,0 +1,51 @@
+version: '2'
+services:
+  microservice:
+    build: .
+    ports:
+      - "80:80"
+    links:
+      - fluentd
+    environment:
+      - PROCESS_NAME=assigner
+      - PROCESS_VERSION=1.0.0
+    env_file:
+      - ./.env
+    logging:
+      driver: "fluentd"
+      options:
+        fluentd-address: 127.0.0.1:24224
+        tag: assigner
+
+  fluentd:
+    build: ./fluentd
+#    volumes:
+#      - ./fluentd/conf:/fluentd/etc
+    links:
+      - "elasticsearch"
+    ports:
+      - "24224:24224"
+      - "24224:24224/udp"
+
+  elasticsearch:
+    environment:
+      - "discovery.type=single-node"
+#      - "ES_JAVA_OPTS=-Xms7g -Xmx7g"
+#    ulimits:
+#      nproc: 3000
+#      nofile: 65536
+#      memlock: -1
+#    mem_limit: 8g
+#    image: elasticsearch:5.6.14-alpine
+    image: elasticsearch:7.3.0
+    expose:
+      - 9200
+    ports:
+      - "9200:9200"
+
+  kibana:
+    image: kibana:7.3.0
+    links:
+      - "elasticsearch"
+    ports:
+      - "5601:5601"

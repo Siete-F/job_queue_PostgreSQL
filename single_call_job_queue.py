@@ -5,22 +5,34 @@ import json
 import uuid
 import atexit
 import random
+import os
+import platform
 
 import psycopg2
 import psycopg2.extensions
 
-PROCESS_NAME     = 'first_process'
-PROCESS_VERSION  = '1.9.2'
-# If this script is called from the commandline, it expects 2 input arguments
-if sys.stdin.isatty():
+# Setting postgresql database credentials environment variables (for development purposes only).
+# os.environ["PGHOST"] = "host.docker.internal";os.environ["PGUSER"] = "test_user";os.environ["PGPASSWORD"] = "test_user";os.environ["PGDATABASE"] = "single_procedure_job_queue"
+
+# When the application is started without env vars defined,
+# 'first_process' and '1.9.2' will be the values, otherwise the env vars.
+PROCESS_NAME    = os.getenv("PROCESS_NAME", 'first_process')
+PROCESS_VERSION = os.getenv("PROCESS_VERSION", '1.9.2')
+
+# If this script is called from the commandline, it expects 2 input arguments.
+# When working with docker, this part is unused.
+# The environment variables are set on build time, and for testing purposes, also on run time.
+if sys.stdin.isatty() and len(sys.argv) > 1:
     PROCESS_NAME    = sys.argv[1]
     PROCESS_VERSION = sys.argv[2]
 
 unique_uuid_code = uuid.uuid4().hex[0:12]
-server_name      = 'MyServer'
+server_name      = os.getenv('HOSTNAME', os.getenv('COMPUTERNAME', platform.node())).split('.')[0]
 
 def make_connection():
-    return (psycopg2.connect("dbname=single_procedure_job_queue user=test_user password='test_user'"))
+    # All details can be provided by environment variables.
+    # Please see "https://www.postgresql.org/docs/9.3/libpq-envars.html" for details.
+    return (psycopg2.connect(""))
 
 def obtain_job(multi_job_process):
     conn = make_connection()
@@ -33,13 +45,13 @@ def obtain_job(multi_job_process):
         value = curs.fetchone()[0]
         return value
     except KeyError as e:
-        print('An error occurred when fetching the job request. Containing:\n{}'.format(e))
+        sys.stderr.write('An error occurred when fetching the job request. Containing:\n{}'.format(e))
     except psycopg2.OperationalError as e:
-        print('A "psycopg2.OperationalError" is fired. The following error msg is associated:\n{}'.format(e))
+        sys.stderr.write('A "psycopg2.OperationalError" is fired. The following error msg is associated:\n{}'.format(e))
         # return 'retry'
     except Exception as e:
-        print('An error occurred during a job request.')
-        print(e)
+        sys.stderr.write('An error occurred during a job request.')
+        sys.stderr.write(e)
         # This is not mandatory error handling, but provides us
         # with the construct to build our own proper error handling.
         if curs is not None:
@@ -58,13 +70,13 @@ def create_jobs(my_job_id, next_job_payload):
         curs.execute(query)
         conn.commit()
     except KeyError as e:
-        print('The fired job_request did not return a value. An error occurred when fetching the job request. Error:\n{}'.format(e))
+        sys.stderr.write('The fired job_request did not return a value. An error occurred when fetching the job request. Error:\n{}'.format(e))
     except psycopg2.OperationalError as e:
-        print('A "psycopg2.OperationalError" is fired on CREATE_JOBS operation! This is unexpected... The following error msg is associated:')
-        print(e)
+        sys.stderr.write('A "psycopg2.OperationalError" is fired on CREATE_JOBS operation! This is unexpected... The following error msg is associated:')
+        sys.stderr.write(e)
     except Exception as e:
-        print('An error occurred during a job request.')
-        print(e)
+        sys.stderr.write('An error occurred during a job request.')
+        sys.stderr.write(e)
     finally:
         if (conn):
             curs.close()
@@ -79,11 +91,11 @@ def mark_pipe_job_finished(job_ids, pipe_job_id):
         curs.execute(query)
         conn.commit()
     except psycopg2.OperationalError as e:
-        print('A "psycopg2.OperationalError" is fired on FINISH_PIPE operation! This is unexpected... The following error msg is associated:')
-        print(e)
+        sys.stderr.write('A "psycopg2.OperationalError" is fired on FINISH_PIPE operation! This is unexpected... The following error msg is associated:')
+        sys.stderr.write(e)
     except Exception as e:
-        print('An error occurred during a job request.')
-        print(e)
+        sys.stderr.write('An error occurred during a job request.')
+        sys.stderr.write(e)
     finally:
         if (conn):
             curs.close()
@@ -126,7 +138,7 @@ def listen():
 
                 # If a 'kill' command was send, stop processing.
                 if my_job.lower() == 'kill':
-                    print('The process has been terminated by a "KILL" notification.')
+                    print('This process has been terminated by a "KILL" notification.')
                     return
 
                 ### Processing ###
@@ -164,12 +176,12 @@ def listen():
                 time.sleep(1)
 
         except McRoberts_Exception as err:
-            print('\nA McRoberts Exception occurred!!\n\nMcR ERROR:\n{}\n\n'
+            sys.stderr.write('\nA McRoberts Exception occurred!!\n\nMcR ERROR:\n{}\n\n'
                   'This process will begin with `find_job` again.'.format(err))
             time.sleep(5)
 
         except Exception as err:
-            print('\nCritical error occurred!!\n\nERROR:\n{}\n'
+            sys.stderr.write('\nCritical error occurred!!\n\nERROR:\n{}\n'
                   'This process will begin with `find_job` again.\n'.format(err))
             time.sleep(5)
 
