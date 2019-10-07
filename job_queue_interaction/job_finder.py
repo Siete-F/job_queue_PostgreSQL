@@ -7,6 +7,7 @@ import traceback
 import __future__  # for printing to stderr
 import platform
 import time
+import re
 
 import json
 import psycopg2
@@ -38,8 +39,7 @@ else:
 if unique_uuid_code == 'docker-desktop':
     unique_uuid_code = uuid.uuid4().hex[0:12]
 
-
-
+os.environ["PROCESS_UUID"] = unique_uuid_code
 
 
 def obtain_job(multi_job_process):
@@ -153,7 +153,8 @@ def listen():
                 stdout, stderr = p.communicate(input=bytes(my_job + '\n', encoding='utf-8'))
                 
                 if stdout:
-                    print(stdout.decode())
+                    # The stdout appears to have a double newline at the end (at least with Rscript calls).
+                    print(re.sub(r'\n\n$', '\n', stdout.decode()))
                 else:
                     print(json.dumps({"level": "DEBUG", "timestamp": str(datetime.now()), "message":
                         "No stdout was returned by the process. It is advised to create at least a single log within the process itself.", "process_name": PROCESS_NAME, 
