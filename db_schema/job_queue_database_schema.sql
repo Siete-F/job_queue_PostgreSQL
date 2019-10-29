@@ -14,6 +14,8 @@
 
 create user test_user with encrypted password 'test_user';
 ------------------------------------
+--DROP DATABASE job_queue_database;
+
 -- create new db
 create database job_queue_database;
 ALTER database job_queue_database OWNER TO test_user;
@@ -56,38 +58,6 @@ AS SELECT pl.pipe_id,
     lag(plp.process_version, 1) OVER (ORDER BY plp.process_order) AS prev_process_version
    FROM pipeline_processes as plp
    join pipelines as pl on pl.pipe_id = plp.pipe_id;
-
--- Permissions
-ALTER TABLE public.pipeline_process_order OWNER TO test_user;
-GRANT ALL ON TABLE public.pipeline_process_order TO test_user;
-
-
-
-
--- Insert some example Pipelines:
-insert into Pipelines (pipe_id, pipe_name, pipe_version, pipe_type, pipe_order) values 
-   (1, 'activities classification',          '1.0.5',   'analysis',        1), 
-   (2, 'activities classification',          '1.2.0',   'analysis',        1), 
-   (3, 'wearing compliance',                 '1.2.0',   'analysis',        1), 
-   (4, 'generate reports',                   '9.3.88',  'reports',         2);
-
--- Insert the example Pipelines definitions in pipeline_processes:
-insert into pipeline_processes (pipe_id, process_name, process_version, process_order) values
-   (1, 'merging_results', '1.5.2', 3),
-   (1, 'classification',  '1.0.0', 2),
-   (1, 'assigner',        '1.0.0', 1),
-   (1, 'uploader',        '1.0.0', 4);
-insert into pipeline_processes (pipe_id, process_name, process_version, process_order, process_configuration) VALUES  -- Includes configurations which are passed through to the jobs.
-   (2, 'first_process',   '1.9.2', 1, '{"configuration": "first"}'),
-   (2, 'second_process',  '2.2.0', 2, '{"configuration": "second process configuration"}'),
-   (2, 'third_process',   '5.3.0', 3, '{"configuration": "blub"}');
-insert into pipeline_processes (pipe_id, process_name, process_version, process_order) values
-   (3, 'wearing_compliance', '1.5.2', 2),
-   (3, 'assigner',           '1.0.0', 1),
-   (3, 'wc_upload',          '1.0.0', 3);
-insert into pipeline_processes (pipe_id, process_name, process_version, process_order) values
-   (4, 'sumarizing_results',   '1.5.2', 1),
-   (4, 'creating_report',      '1.0.0', 2);
 
    
 -- Process handling
@@ -141,12 +111,6 @@ comment on column Job_Queue.Job_Priority is 'Jobs are sorted based on this prior
 comment on column Job_Queue.Job_Creater_Set_Elements is 'The Job_ids of the batch that has been processed in parallel. The process picking up this job will check if all these jobs are finished and pick them up together.';
 comment on column Job_Queue.Job_Set_Elements is 'The Job_ids of the batch that this job is part of. These jobs are created in parallel, to be analysed side by side.';
 
-CREATE OR REPLACE VIEW public.job_queue_insight
-AS SELECT pipe_Job_id, Pipe_id, Job_Payload, Job_Priority, Job_Finished, Job_Created_Timestamp, 
-Job_Finished_Timestamp, Job_Assigned_Timestamp, Job_Creater_Process_uuid, Job_Id, Job_Parent_Set_Elements, Job_Creater_Set_Elements, Job_Set_Elements, Job_Creater_Process_Name, Job_Process_Name, 
-Job_Creater_Process_Version, Job_Process_Version, Job_Assigned_Process_uuid 
-FROM job_queue ORDER BY pipe_Job_id, Job_Created_Timestamp;
-
 CREATE TABLE Job_Queue_Claim (
     Claimed_Job_Ids       INT ARRAY PRIMARY KEY,
     Claimed_Process_uuid  VARCHAR(12),
@@ -154,8 +118,22 @@ CREATE TABLE Job_Queue_Claim (
 );
 
 -------------------------------------------------------------------------------------
+                -- Views --
+-------------------------------------------------------------------------------------
+
+CREATE OR REPLACE VIEW public.job_queue_insight
+AS SELECT pipe_Job_id, Pipe_id, Job_Payload, Job_Priority, Job_Finished, Job_Created_Timestamp, 
+Job_Finished_Timestamp, Job_Assigned_Timestamp, Job_Creater_Process_uuid, Job_Id, Job_Parent_Set_Elements, Job_Creater_Set_Elements, Job_Set_Elements, Job_Creater_Process_Name, Job_Process_Name, 
+Job_Creater_Process_Version, Job_Process_Version, Job_Assigned_Process_uuid 
+FROM job_queue ORDER BY pipe_Job_id, Job_Created_Timestamp;
+
+-------------------------------------------------------------------------------------
             -- stored procedures --
 -------------------------------------------------------------------------------------
+
+-- Creating a (mini table) type that stores 3 variables. Makes passing trough data easier.
+CREATE TYPE process AS (process_name varchar, process_version varchar, process_configuration jsonb);
+
 
 CREATE OR REPLACE FUNCTION get_pipe_order(in int, out p_order int)
 AS $$
@@ -232,8 +210,7 @@ CREATE TRIGGER create_or_finish_pipe_job
 -- Insert some values
 --insert into pipe_job_queue values
 --   (1, 50, 2, 100, false),
---   (2, 65, 2, 100, false)
-
+--   (2, 65, 2, 100, false);
 
 
 -- Create entry Job.
@@ -257,17 +234,13 @@ begin
 
     UPDATE job_queue SET Job_Set_Elements = ARRAY[created_job_id] WHERE job_id = created_job_id;
 end;
-$$ language plpgsql
+$$ language plpgsql;
 
 -- pipe_job_Id, pipe_id
 --call create_entry_job(99,  1, '{}'::jsonb);
 --call create_entry_job(100, 2, '{}'::jsonb);
 --call create_entry_job(101, 1, '{}'::jsonb);
 
-
-
--- Creating a (mini table) type that stores 3 variables. Makes passing trough data easier.
-CREATE TYPE process AS (process_name varchar, process_version varchar, process_configuration jsonb);
 
 -- pipe_id, process name, process version
 CREATE OR REPLACE FUNCTION get_next_process(in int, in VARCHAR, in VARCHAR, out next_process process) --out process_name varchar, out process_version varchar, out process_conf jsonb)
@@ -497,10 +470,38 @@ begin
 END;
 $$ LANGUAGE plpgsql;
 
+
+
 ----- EXAMPLE INPUT ------
 
+-- Insert some example Pipelines:
+insert into Pipelines (pipe_id, pipe_name, pipe_version, pipe_type, pipe_order) values 
+   (1, 'activities classification',          '1.0.5',   'analysis',        1), 
+   (2, 'activities classification',          '1.2.0',   'analysis',        1), 
+   (3, 'wearing compliance',                 '1.2.0',   'analysis',        1), 
+   (4, 'generate reports',                   '9.3.88',  'reports',         2);
+
+-- Insert the example Pipelines definitions in pipeline_processes:
+insert into pipeline_processes (pipe_id, process_name, process_version, process_order) values
+   (1, 'merging_results', '1.5.2', 3),
+   (1, 'classification',  '1.0.0', 2),
+   (1, 'assigner',        '1.0.0', 1),
+   (1, 'uploader',        '1.0.0', 4);
+insert into pipeline_processes (pipe_id, process_name, process_version, process_order, process_configuration) VALUES  -- Includes configurations which are passed through to the jobs.
+   (2, 'first_process',   '1.9.2', 1, '{"configuration": "first"}'),
+   (2, 'second_process',  '2.2.0', 2, '{"configuration": "second process configuration"}'),
+   (2, 'third_process',   '5.3.0', 3, '{"configuration": "blub"}');
+insert into pipeline_processes (pipe_id, process_name, process_version, process_order) values
+   (3, 'wearing_compliance', '1.5.2', 2),
+   (3, 'assigner',           '1.0.0', 1),
+   (3, 'wc_upload',          '1.0.0', 3);
+insert into pipeline_processes (pipe_id, process_name, process_version, process_order) values
+   (4, 'sumarizing_results',   '1.5.2', 1),
+   (4, 'creating_report',      '1.0.0', 2);
+   
+   
 -- The whole chain of processes start with a pipe_job_queue insert:
-insert into pipe_job_queue values 
+insert into pipe_job_queue (pipe_job_id, request_id, pipe_id, pipe_job_priority, pipe_job_finished) values 
    (1, 50, 1, 100, false), 
    (2, 50, 4, 90,  false),  -- An order 2 pipe_id
    (3, 45, 1, 200, false),
@@ -508,5 +509,5 @@ insert into pipe_job_queue values
 -- Pipe 1, 3 and 4 should be processed first, if 1 and 4 are finished, 2 will be processed.
 -- During this process, 4 is prioritized above 1 and 1 above 3.
 
--- RESET EXAMPLE:
+-- RESET EXAMPLE (after reset, run `insert into pipe_job_queue...` again to restart):
 -- truncate job_queue; truncate job_queue_claim; truncate pipe_job_queue;

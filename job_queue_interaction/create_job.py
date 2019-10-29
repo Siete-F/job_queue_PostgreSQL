@@ -1,7 +1,7 @@
 import __future__
 #import psycopg2.extensions
 import sys
-from mcr_connections import make_job_queue_connection
+from .mcr_connections import make_job_queue_connection
 
 def create_jobs(my_job_id, next_job_payload):
     conn = make_job_queue_connection()
@@ -23,6 +23,7 @@ def create_jobs(my_job_id, next_job_payload):
         conn.close()
         if (curs):
             curs.close()
+
 
 if __name__ == '__main__':
     my_job_ids = list(map(int, sys.argv[1].split(',')))

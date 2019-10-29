@@ -17,10 +17,19 @@ RUN buildDeps="sudo make gcc g++ libc-dev" \
  && rm -rf /var/lib/apt/lists/* \
  && rm -rf /tmp/* /var/tmp/* /usr/lib/ruby/gems/*/cache/*.gem
 
-COPY ./fluent.conf /fluentd/etc/
+## the block below can be removed if no local file is stored anymore in the `fluent.conf` file
+# Make folder recursively with `-p`
+RUN mkdir -p /var/log/fluent
+# `change owner` of the folder to `fluent`. The current user is `root`.
+RUN chown fluent /var/log/fluent
+# `change ...` of the folder for `o`, the owner, to `rwx`, read write execute. Where the owner is now `fluent`.
+RUN chmod o-rwx /var/log/fluent
+
+COPY ./fluent.conf /
 
 USER fluent
 
 #COPY entrypoint.sh /bin/
+CMD [ "fluentd", "-c", "/fluent.conf" ]
 
 #ENTRYPOINT ["tini",  "--", "/bin/entrypoint.sh"]

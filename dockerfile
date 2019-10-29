@@ -23,7 +23,7 @@ COPY example_process.py /
 ENV PROCESS_NAME    ${PROCESS_NAME:-first_process}
 ENV PROCESS_VERSION ${PROCESS_VERSION:-1.9.2}
 
-CMD [ "python", "/example_process.py" ]
+CMD [ "python", "-u", "/example_process.py" ]
 
 # Alternative approach to the `requirements.txt` file:
 
