@@ -14,7 +14,7 @@ services:
       driver: "fluentd"
       options:
         fluentd-address: host.docker.internal:24224
-        tag: merging_results1
+        tag: server1.merging_results.{{.ID}}
         fluentd-async-connect: "true"
 
 
@@ -32,7 +32,7 @@ services:
       driver: "fluentd"
       options:
         fluentd-address: host.docker.internal:24224
-        tag: merging_results2
+        tag: server1.merging_results.{{.ID}}
         fluentd-async-connect: "true"
 
 
@@ -50,7 +50,7 @@ services:
       driver: "fluentd"
       options:
         fluentd-address: host.docker.internal:24224
-        tag: classification1
+        tag: server1.classification.{{.ID}}
         fluentd-async-connect: "true"
 
 
@@ -68,7 +68,7 @@ services:
       driver: "fluentd"
       options:
         fluentd-address: host.docker.internal:24224
-        tag: classification2
+        tag: server1.classification.{{.ID}}
         fluentd-async-connect: "true"
 
 
@@ -86,7 +86,7 @@ services:
       driver: "fluentd"
       options:
         fluentd-address: host.docker.internal:24224
-        tag: classification3
+        tag: server2.classification.{{.ID}}
         fluentd-async-connect: "true"
 
   classification_4:
@@ -103,7 +103,7 @@ services:
       driver: "fluentd"
       options:
         fluentd-address: host.docker.internal:24224
-        tag: classification4
+        tag: server2.classification.{{.ID}}
         fluentd-async-connect: "true"
 
   assigner:
@@ -120,7 +120,7 @@ services:
       driver: "fluentd"
       options:
         fluentd-address: host.docker.internal:24224
-        tag: assigner
+        tag: server1.assigner.{{.ID}}
         fluentd-async-connect: "true"
 
   uploader:
@@ -137,7 +137,7 @@ services:
       driver: "fluentd"
       options:
         fluentd-address: host.docker.internal:24224
-        tag: uploader
+        tag: server1.uploader.{{.ID}}
         fluentd-async-connect: "true"
 
 
@@ -155,7 +155,7 @@ services:
       driver: "fluentd"
       options:
         fluentd-address: host.docker.internal:24224
-        tag: first_process
+        tag: server1.first_process.{{.ID}}
         fluentd-async-connect: "true"
 
 
@@ -173,7 +173,7 @@ services:
       driver: "fluentd"
       options:
         fluentd-address: host.docker.internal:24224
-        tag: second_process
+        tag: server1.second_process.{{.ID}}
         fluentd-async-connect: "true"
 
 
@@ -191,17 +191,17 @@ services:
       driver: "fluentd"
       options:
         fluentd-address: host.docker.internal:24224
-        tag: third_process
+        tag: server1.third_process.{{.ID}}
         fluentd-async-connect: "true"
 
 
-  sumarizing_results:
-    image: sumarizing_results:1.5.2
+  summarizing_results:
+    image: summarizing_results:1.5.2
     build: .
     links:
       - fluentd
     environment:
-      - PROCESS_NAME=sumarizing_results
+      - PROCESS_NAME=summarizing_results
       - PROCESS_VERSION=1.5.2
     env_file:
       - ./.env
@@ -209,7 +209,7 @@ services:
       driver: "fluentd"
       options:
         fluentd-address: host.docker.internal:24224
-        tag: sumarizing_results
+        tag: server1.summarizing_results.{{.ID}}
         fluentd-async-connect: "true"
 
 
@@ -227,7 +227,7 @@ services:
       driver: "fluentd"
       options:
         fluentd-address: host.docker.internal:24224
-        tag: creating_report
+        tag: server1.creating_report.{{.ID}}
         fluentd-async-connect: "true"
 
 

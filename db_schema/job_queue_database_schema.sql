@@ -496,7 +496,7 @@ insert into pipeline_processes (pipe_id, process_name, process_version, process_
    (3, 'assigner',           '1.0.0', 1),
    (3, 'wc_upload',          '1.0.0', 3);
 insert into pipeline_processes (pipe_id, process_name, process_version, process_order) values
-   (4, 'sumarizing_results',   '1.5.2', 1),
+   (4, 'summarizing_results',   '1.5.2', 1),
    (4, 'creating_report',      '1.0.0', 2);
    
    
