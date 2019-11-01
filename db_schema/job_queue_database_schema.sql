@@ -101,7 +101,7 @@ CREATE TABLE Job_Queue (
     Job_Creater_Process_Name    VARCHAR(50) default NULL, --    input for the assigned process (for which the payload is). This can then easily be included if the payload is not as expected.
     Job_Creater_Process_Version VARCHAR(10) default NULL,
     Job_Assigned_Timestamp      TIMESTAMPTZ,
-    Job_Assigned_Process_uuid   VARCHAR(12),              -- Jobs with both NULL or '' will be considered 'available'.
+    Job_Assigned_Process_uuid   VARCHAR(12),            -- Jobs with both NULL or '' will be considered 'available'.
     Job_Set_Elements            INT ARRAY default NULL, -- see comment.
     Job_Process_Name            VARCHAR(50) not null,
     Job_Process_Version         VARCHAR(10) not null,

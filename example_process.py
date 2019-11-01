@@ -29,10 +29,12 @@ if sys.stdin.isatty() and len(sys.argv) > 1:
 unique_uuid_code = uuid.uuid4().hex[0:12]
 server_name      = os.getenv('HOSTNAME', os.getenv('COMPUTERNAME', platform.node())).split('.')[0]
 
+
 def make_connection():
     # All details can be provided by environment variables.
     # Please see "https://www.postgresql.org/docs/9.3/libpq-envars.html" for details.
     return (psycopg2.connect(""))
+
 
 def obtain_job(multi_job_process):
     conn = make_connection()
@@ -61,6 +63,7 @@ def obtain_job(multi_job_process):
             curs.close()
             conn.close()
 
+
 def create_jobs(my_job_id, next_job_payload):
     conn = make_connection()
     curs = None
@@ -82,6 +85,7 @@ def create_jobs(my_job_id, next_job_payload):
             curs.close()
             conn.close()
 
+
 def mark_pipe_job_finished(job_ids, pipe_job_id):
     conn = make_connection()
     curs = None
@@ -91,6 +95,7 @@ def mark_pipe_job_finished(job_ids, pipe_job_id):
         curs.execute(query)
         conn.commit()
     except psycopg2.OperationalError as e:
+
         sys.stderr.write('A "psycopg2.OperationalError" is fired on FINISH_PIPE operation! This is unexpected... The following error msg is associated:')
         sys.stderr.write(e)
     except Exception as e:
@@ -101,12 +106,13 @@ def mark_pipe_job_finished(job_ids, pipe_job_id):
             curs.close()
             conn.close()
 
+
 class McRoberts_Exception(Exception):
     def __init__(self, msg):
         super().__init__(msg)
 
-def listen():
 
+def listen():
     while 1:
         try:
             ### find job ###
@@ -128,17 +134,26 @@ def listen():
             if my_job:
                 # When no job is found, wait 5 seconds and try again.
                 if my_job.lower() == 'retry, i lost the job race':
-                    print('Retrying, lost job race.')
+                    print(json.dumps({"level": "INFO", "timestamp": str(datetime.datetime.now()),
+                                      "message": 'Retrying, lost job race.',
+                                      "process_name": PROCESS_NAME, "process_version": PROCESS_VERSION,
+                                      "uuid": unique_uuid_code}))
                     continue
 
                 if my_job.lower() == 'no job found':
-                    print('No jobs, {} {} {}.'.format(PROCESS_NAME, PROCESS_VERSION, unique_uuid_code))
+                    print(json.dumps({"level": "INFO", "timestamp": str(datetime.datetime.now()),
+                                      "message": 'No jobs, {} {} {}.'.format(PROCESS_NAME, PROCESS_VERSION, unique_uuid_code),
+                                      "process_name": PROCESS_NAME, "process_version": PROCESS_VERSION,
+                                      "uuid": unique_uuid_code}))
                     time.sleep(5)
                     continue
 
                 # If a 'kill' command was send, stop processing.
                 if my_job.lower() == 'kill':
-                    print('This process has been terminated by a "KILL" notification.')
+                    print(json.dumps({"level": "WARN", "timestamp": str(datetime.datetime.now()),
+                                      "message": 'This process has been terminated by a "KILL" notification.',
+                                      "process_name": PROCESS_NAME, "process_version": PROCESS_VERSION,
+                                      "uuid": unique_uuid_code}))
                     return
 
                 ### Processing ###
@@ -176,13 +191,19 @@ def listen():
                 time.sleep(1)
 
         except McRoberts_Exception as err:
-            sys.stderr.write('\nA McRoberts Exception occurred!!\n\nMcR ERROR:\n{}\n\n'
-                  'This process will begin with `find_job` again.'.format(err))
+            print(json.dumps({"level": "ERROR", "timestamp": str(datetime.datetime.now()),
+                              "message": 'A McRoberts Exception occurred!! This process will begin with `find_job` '
+                                         'again. ERROR: {}'.format(err),
+                              "process_name": PROCESS_NAME, "process_version": PROCESS_VERSION,
+                              "uuid": unique_uuid_code}))
             time.sleep(5)
 
         except Exception as err:
-            sys.stderr.write('\nCritical error occurred!!\n\nERROR:\n{}\n'
-                  'This process will begin with `find_job` again.\n'.format(err))
+            print(json.dumps({"level": "CRIT", "timestamp": str(datetime.datetime.now()),
+                              "message": 'A critical error occurred!! This process will begin with `find_job` again.'
+                                         ' ERROR: {}'.format(err),
+                              "process_name": PROCESS_NAME, "process_version": PROCESS_VERSION,
+                              "uuid": unique_uuid_code}))
             time.sleep(5)
 
 

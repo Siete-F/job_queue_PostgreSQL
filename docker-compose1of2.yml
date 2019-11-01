@@ -1,0 +1,31 @@
+version: '3.7'
+services:
+  fluentd:
+    image: mcrfluentd:1.0.0
+    build: ./fluentd
+    environment:
+      - TZ=Europe/Amsterdam
+    depends_on:
+      - "elasticsearch"
+    ports:
+      - "24224:24224"
+      - "24224:24224/udp"
+
+
+  elasticsearch:
+    environment:
+      - "discovery.type=single-node"
+      - TZ=Europe/Amsterdam
+    image: elasticsearch:7.3.0
+    expose:
+      - 9200
+    ports:
+      - "9200:9200"
+
+
+  kibana:
+    image: kibana:7.3.0
+    depends_on:
+      - "elasticsearch"
+    ports:
+      - "5601:5601"
