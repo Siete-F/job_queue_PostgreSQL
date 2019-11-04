@@ -387,6 +387,7 @@ begin
         -- take only 1 set when ordered on priority
 
         -- the set_el (Job_Creater_set_elements) is used as key to find a job batch outcome that is completely processed.
+        SELECT set_el, finished FROM (
         SELECT set_el, sum(job_finished::int) = array_length(set_el, 1) AS finished INTO job_list FROM (
                     SELECT set_el, set_el[s] AS job_ids, job_priority, Job_Created_Timestamp FROM (
                         SELECT set_el,
@@ -408,7 +409,7 @@ begin
             ) AS finish_state ON depending_jobs.job_ids = finish_state.job_id
             GROUP BY set_el
             order by min(job_priority),        -- Ordering of PRIORITY !!
-                     max(Job_Created_Timestamp) LIMIT 1;        
+                     max(Job_Created_Timestamp)) AS X WHERE X.finished IS TRUE LIMIT 1;        
 
         -- build-in function 'found' checks if 'previous query' returned any result.
         IF NOT FOUND OR NOT job_list.finished THEN RETURN; END IF;
@@ -497,12 +498,12 @@ insert into pipeline_processes (pipe_id, process_name, process_version, process_
    (3, 'assigner',           '1.0.0', 1),
    (3, 'wc_upload',          '1.0.0', 3);
 insert into pipeline_processes (pipe_id, process_name, process_version, process_order) values
-   (4, 'summarizing_results',   '1.5.2', 1),
+   (4, 'summarizing_results',  '1.5.2', 1),
    (4, 'creating_report',      '1.0.0', 2);
    
    
 -- The whole chain of processes start with a pipe_job_queue insert:
-UPDATE process_heartbeats SET process_kill_switch = TRUE WHERE 1;
+UPDATE process_heartbeats SET process_kill_switch = TRUE WHERE TRUE;
 truncate job_queue; truncate job_queue_claim; truncate pipe_job_queue;
 insert into pipe_job_queue(request_id, pipe_id, pipe_job_priority, pipe_job_finished) values 
    (50, 1, 100, false), 

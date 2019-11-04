@@ -2,7 +2,7 @@ import __future__
 import sys
 import time
 from datetime import datetime
-from subprocess import Popen, PIPE, check_call
+from subprocess import Popen, PIPE, run
 import json
 import random
 import os
@@ -29,7 +29,7 @@ except json.JSONDecodeError as err:
 # Not sure if there are still singular payloads. We can now conclude that there are not
 PROCESS_NAME = process_input[0]['job_process_name']
 PROCESS_VERSION = process_input[0]['job_process_version']
-proc_uuid = process_input[0]['job_assigned_process_uuid']
+proc_uuid = os.environ["PROCESS_UUID"]
 pipe_job_id = int(os.environ["PIPE_JOB_ID"])
 
 # Handle input errors:
@@ -92,8 +92,12 @@ def perform_stdin_operation(cmd_str, stdin_payload=None):
         raise McRoberts_Exception(stderr.decode())
 
 def perform_operation(cmd_str):
-    check_call(cmd_str.split(' '))
-
+    p = run(cmd_str.split(' '), universal_newlines=True, stdout=PIPE, stderr=PIPE)
+    if p.stdout:
+        # The stdout appears to have a double newline at the end (at least with Rscript calls).
+        print(re.sub(r'\n\n$', '\n', p.stdout))
+    if p.stderr:
+        raise McRoberts_Exception(p.stderr)
 
 ### Roundup ###
 if test_behaviour == 'create1job':

@@ -156,7 +156,6 @@ def listen():
                     {"level": "CRIT", "timestamp": datetime.now().isoformat(),
                      "message": 'A job of incorrect format was found! The payload not consist of a list and/or'
                                 ' the first element of the list was not a dictionary.',
-                     "time_since_last_job": time_since_last_job, "n_job_batches_processed": n_runs,
                      "process_name": PROCESS_NAME, "process_version": PROCESS_VERSION, "uuid": unique_uuid_code}))
                 continue
 
@@ -204,9 +203,12 @@ def listen():
 
             print(json.dumps(
                 {"level": "INFO", "timestamp": datetime.now().isoformat(), "message": 'Job finished!',
-                 "job_start_time": job_start_time.isoformat(), "job_end_time": datetime.now().isoformat(),
+                 "process_idle_time": time_since_last_job, "job_start_time": job_start_time.isoformat(),
+                 "job_end_time": datetime.now().isoformat(),
                  "job_duration": (datetime.now() - job_start_time).total_seconds(), "pipe_job_id": pipe_job_id,
                  "process_name": PROCESS_NAME, "process_version": PROCESS_VERSION, "uuid": unique_uuid_code}))
+
+            last_job_timestamp = datetime.now()
 
             if stdout:
                 # The stdout appears to have a double newline at the end (at least with Rscript calls).
