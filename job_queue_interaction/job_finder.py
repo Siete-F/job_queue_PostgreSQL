@@ -16,12 +16,18 @@ from jsonschema import validate
 from mcr_connections import make_job_queue_connection  # `.mcr_connections` returns: "not recognized as package" error.
 
 PROCESS_NAME            = os.getenv("PROCESS_NAME", 'nameless_process')
+os.environ["PROCESS_NAME"] = PROCESS_NAME
 PROCESS_VERSION         = os.getenv("PROCESS_VERSION", '99.99.99')
+os.environ["PROCESS_VERSION"] = PROCESS_VERSION
 MULTIPLE_INPUTS_PROCESS = os.getenv("MULTIPLE_INPUTS_PROCESS", 'False').lower() == 'true'
 PROCESS_CMD_CALL        = os.getenv("PROCESS_CMD_CALL", 'python -c "print(\'Hallo world\')"')
 JSON_SCHEMA_LOCATION    = os.getenv("JSON_SCHEMA_LOCATION")
 unique_uuid_code        = os.getenv('HOSTNAME', os.getenv('COMPUTERNAME', platform.node())).split('.')[0]
 server_name             = os.getenv("DOCKER_HOST_NAME", 'Not provided at microservice startup')
+
+# More optional parameters:
+check_freq = int(os.getenv("SEARCHING_FREQUENCY_IN_SECONDS", '5'))  # In seconds, defaults to 5 sec
+check_notify = int(os.getenv("SEARCHING_NOTIFICATION_DELAY", '300'))  # In seconds, defaults to 5 minutes
 
 # Load JSON schema for input validation.
 if JSON_SCHEMA_LOCATION:
@@ -34,7 +40,7 @@ if JSON_SCHEMA_LOCATION:
                       "uuid": unique_uuid_code}))
 else:
     print(json.dumps({"level": "WARN", "timestamp": datetime.now().isoformat(),
-                      "message": 'NO json_input_schema is loaded. This because no `JSON_SCHEMA_LOCATION`'
+                      "message": 'No json_input_schema is loaded. This because no `JSON_SCHEMA_LOCATION`'
                                  ' env var could be found. No input quality checks will be performed!',
                       "process_name": PROCESS_NAME, "process_version": PROCESS_VERSION, "uuid": unique_uuid_code}))
 
@@ -75,10 +81,13 @@ def obtain_job(multi_job_process):
 
 
 def listen():
-    check_freq = 5  # In minutes
-    check_notify = 5  # In seconds
+    n_runs = 0
+    n_jobs = 0
     # A time in the future as initial value forces the first log to be created directly.
     wait_start = datetime.now() - timedelta(minutes=check_freq)
+    last_job_timestamp = None
+    time_since_last_job = None
+    pipe_job_id = None
 
     print(json.dumps({"level": "INFO", "timestamp": datetime.now().isoformat(), "message": "Process STARTUP successful!",
                       "process_name": PROCESS_NAME, "process_version": PROCESS_VERSION, "uuid": unique_uuid_code}))
@@ -102,10 +111,11 @@ def listen():
                 continue
 
             if my_job.lower() == 'no job found':
-                if (datetime.now() - wait_start).total_seconds() > check_notify * 60:  # Notify us every X minutes.
+                # Notify us every X minutes that jobs are searched for.
+                if (datetime.now() - wait_start).total_seconds() > check_notify:
                     print(json.dumps({"level": "INFO", "timestamp": datetime.now().isoformat(),
                                       "message": 'No job found. Checking every {} seconds, logging with minimum of {}'
-                                                 ' minutes in between.'.format(check_freq, check_notify),
+                                                 ' seconds in between.'.format(check_freq, check_notify),
                                       "process_name": PROCESS_NAME, "process_version": PROCESS_VERSION,
                                       "uuid": unique_uuid_code}))
                     wait_start = datetime.now()
@@ -124,20 +134,46 @@ def listen():
             ### Processing ###
             # If a job is found (i.e. no 'no job found', 'retry, i lost the job race' or 'kill' was returned)
             # run subprocess that is instructed by env var:
+
+            # first, update log params and log:
+            # - time since last job
+            # - number of jobs (batches, i.e. 1 or multiple jobs) processed
+            n_runs += 1
+            job_start_time = datetime.now()
+
+            # this statement will only be skipped on first job.
+            if last_job_timestamp:
+                time_since_last_job = (datetime.now() - last_job_timestamp).total_seconds()
+            last_job_timestamp = datetime.now()
+
+            # Throws error on reading failure.
+            # The payload should already be valid json because it has been inserted into a JSON database field.
+            # Invalid json cannot be inserted in the first place with e.g. `create_job` or another procedure.
+            payload = json.loads(my_job)
+
+            if type(payload) is not list or type(payload[0]) is not dict or 'pipe_job_id' not in payload[0]:
+                print(json.dumps(
+                    {"level": "CRIT", "timestamp": datetime.now().isoformat(),
+                     "message": 'A job of incorrect format was found! The payload not consist of a list and/or'
+                                ' the first element of the list was not a dictionary.',
+                     "time_since_last_job": time_since_last_job, "n_job_batches_processed": n_runs,
+                     "process_name": PROCESS_NAME, "process_version": PROCESS_VERSION, "uuid": unique_uuid_code}))
+                continue
+
+            n_jobs += len(payload)
+            pipe_job_id = payload[0]['pipe_job_id']
+
             print(json.dumps(
-                {"level": "INFO", "timestamp": datetime.now().isoformat(), "message": 'Job found!', "process_name":
-                    PROCESS_NAME, "process_version": PROCESS_VERSION, "uuid": unique_uuid_code}))
+                {"level": "INFO", "timestamp": datetime.now().isoformat(), "message": 'Job found!',
+                 "time_since_last_job": time_since_last_job, "n_job_batches_processed": n_runs,
+                 "n_jobs_processed": n_jobs, "n_jobs_in_current_batch": len(payload), "pipe_job_id": pipe_job_id,
+                 "process_name": PROCESS_NAME, "process_version": PROCESS_VERSION, "uuid": unique_uuid_code}))
 
             # If json schema validation is available, validate the input:
             if JSON_SCHEMA_LOCATION:
                 print(json.dumps({"level": "DEBUG", "timestamp": datetime.now().isoformat(), "message":
-                    'starting JSON schema validation.', "process_name": PROCESS_NAME,
+                    'starting JSON schema validation.', "pipe_job_id": pipe_job_id, "process_name": PROCESS_NAME,
                                   "process_version": PROCESS_VERSION, "uuid": unique_uuid_code}))
-
-                # Throws error on reading failure.
-                # The payload should already be valid json because it has been inserted into a JSON database field.
-                # Invalid json cannot be inserted in the first place with e.g. `create_job` or another procedure.
-                payload = json.loads(my_job)
 
                 # Throws error on failure
                 validate(payload, schema=input_json_schema)
@@ -151,50 +187,63 @@ def listen():
 
                 print(json.dumps({"level": "INFO", "timestamp": datetime.now().isoformat(),
                                   "message": 'json_input_schema validation successful.', "job_id": job_id,
-                                  "process_name": PROCESS_NAME, "process_version": PROCESS_VERSION, "uuid": unique_uuid_code,
-                                  "job_payload_fields": [str(x) for x in payload[0]['job_payload'].keys()]}))
+                                  "job_payload_fields": [str(x) for x in payload[0]['job_payload'].keys()],
+                                  "pipe_job_id": pipe_job_id, "process_name": PROCESS_NAME,
+                                  "process_version": PROCESS_VERSION, "uuid": unique_uuid_code}))
 
-            print(json.dumps({"level": "INFO", "timestamp": datetime.now().isoformat(), "message":
-                "Launching child process with the provided call: '" + PROCESS_CMD_CALL + "'.", "process_name":
-                                  PROCESS_NAME, "process_version": PROCESS_VERSION, "uuid": unique_uuid_code}))
+            print(json.dumps({"level": "DEBUG", "timestamp": datetime.now().isoformat(),
+                              "message": "Launching child process with the provided call: '" + PROCESS_CMD_CALL + "'",
+                              "pipe_job_id": pipe_job_id, "process_name": PROCESS_NAME,
+                              "process_version": PROCESS_VERSION, "uuid": unique_uuid_code}))
+
+            os.environ["PIPE_JOB_ID"] = str(pipe_job_id)
 
             # reading from stdin expects newline at end of file.
             p = Popen(PROCESS_CMD_CALL.split(' '), stdin=PIPE, stdout=PIPE, stderr=PIPE)
             stdout, stderr = p.communicate(input=bytes(my_job + '\n', encoding='utf-8'))
 
+            print(json.dumps(
+                {"level": "INFO", "timestamp": datetime.now().isoformat(), "message": 'Job finished!',
+                 "job_start_time": job_start_time.isoformat(), "job_end_time": datetime.now().isoformat(),
+                 "job_duration": (datetime.now() - job_start_time).total_seconds(), "pipe_job_id": pipe_job_id,
+                 "process_name": PROCESS_NAME, "process_version": PROCESS_VERSION, "uuid": unique_uuid_code}))
+
             if stdout:
                 # The stdout appears to have a double newline at the end (at least with Rscript calls).
                 print(re.sub(r'\n\n$', '\n', stdout.decode()))
             else:
-                print(json.dumps({"level": "DEBUG", "timestamp": datetime.now().isoformat(), "message":
-                    "No stdout was returned by the process. It is advised to create at least a single log within the process itself.", "process_name": PROCESS_NAME,
-                    "process_version": PROCESS_VERSION, "uuid": unique_uuid_code}))
+                print(json.dumps({"level": "WARN", "timestamp": datetime.now().isoformat(),
+                                  "message": "No stdout was returned by the process."
+                                             " It is advised to create at least one log within the process itself.",
+                                  "pipe_job_id": pipe_job_id, "process_name": PROCESS_NAME,
+                                  "process_version": PROCESS_VERSION, "uuid": unique_uuid_code}))
 
             if stderr:
                 raise McRoberts_Exception(stderr.decode())
             else:
-                print(json.dumps({"level": "DEBUG", "timestamp": datetime.now().isoformat(), "message":
-                    "No stderr was returned by the process.", "process_name": PROCESS_NAME,
-                    "process_version": PROCESS_VERSION, "uuid": unique_uuid_code}))
+                print(json.dumps({"level": "DEBUG", "timestamp": datetime.now().isoformat(),
+                                  "message": "No stderr was returned by the process.", "pipe_job_id": pipe_job_id,
+                                  "process_name": PROCESS_NAME, "process_version": PROCESS_VERSION,
+                                  "uuid": unique_uuid_code}))
 
         except McRoberts_Exception as err:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             print(json.dumps({"level": "ERROR", "timestamp": datetime.now().isoformat(),
-                              "message": 'A McRoberts Exception occurred!! McR ERROR: "{}". This process will continue to search for jobs again.'.format(
+                              "message": 'The following McRoberts Exception occurred: "{}". This process will continue to search for jobs again.'.format(
                                   str(err)), "error_msg": str(err),
                               "error_traceback": repr(traceback.format_exception(exc_type, exc_value, exc_traceback)),
-                              "process_name": PROCESS_NAME, "process_version": PROCESS_VERSION,
-                              "uuid": unique_uuid_code}), file=sys.stderr)
+                              "pipe_job_id": pipe_job_id, "process_name": PROCESS_NAME,
+                              "process_version": PROCESS_VERSION, "uuid": unique_uuid_code}), file=sys.stderr)
             time.sleep(5)
 
         except Exception as err:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             print(json.dumps({"level": "CRIT", "timestamp": datetime.now().isoformat(),
-                              "message": 'The following error occured: "{}". This process will continue to search for jobs again.'.format(
+                              "message": 'The following Critical error occured: "{}". This process will continue to search for jobs again.'.format(
                                   str(err)), "error_msg": str(err),
                               "error_traceback": repr(traceback.format_exception(exc_type, exc_value, exc_traceback)),
-                              "process_name": PROCESS_NAME, "process_version": PROCESS_VERSION,
-                              "uuid": unique_uuid_code}), file=sys.stderr)
+                              "pipe_job_id": pipe_job_id, "process_name": PROCESS_NAME,
+                              "process_version": PROCESS_VERSION, "uuid": unique_uuid_code}), file=sys.stderr)
             time.sleep(5)
 
 

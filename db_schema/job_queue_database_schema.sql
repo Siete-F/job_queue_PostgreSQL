@@ -299,7 +299,8 @@ begin
                     old_job.Job_Set_Elements, old_job.Job_Assigned_Process_uuid,  old_job.Job_Process_Name,  old_job.Job_Process_Version,
                     next_process.process_name,  next_process.process_version,  next_process.process_configuration)
             RETURNING job_id INTO a_job_id;
-            
+        
+        -- := assigns value, || appends
         created_job_ids := created_job_ids || a_job_id;
     END LOOP;
     
@@ -501,11 +502,13 @@ insert into pipeline_processes (pipe_id, process_name, process_version, process_
    
    
 -- The whole chain of processes start with a pipe_job_queue insert:
-insert into pipe_job_queue (pipe_job_id, request_id, pipe_id, pipe_job_priority, pipe_job_finished) values 
-   (1, 50, 1, 100, false), 
-   (2, 50, 4, 90,  false),  -- An order 2 pipe_id
-   (3, 45, 1, 200, false),
-   (4, 50, 2, 90,  false);
+UPDATE process_heartbeats SET process_kill_switch = TRUE WHERE 1;
+truncate job_queue; truncate job_queue_claim; truncate pipe_job_queue;
+insert into pipe_job_queue(request_id, pipe_id, pipe_job_priority, pipe_job_finished) values 
+   (50, 1, 100, false), 
+   (50, 4, 90,  false),  -- An order 2 pipe_id
+   (45, 1, 200, false),
+   (50, 2, 90,  false);
 -- Pipe 1, 3 and 4 should be processed first, if 1 and 4 are finished, 2 will be processed.
 -- During this process, 4 is prioritized above 1 and 1 above 3.
 

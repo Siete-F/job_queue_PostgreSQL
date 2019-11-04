@@ -1,6 +1,9 @@
 import __future__  # Likely used for print to support the sys.stderr method.
 import psycopg2
 import sys
+import os
+from datetime import datetime
+import json
 from mcr_connections import make_job_queue_connection  # `.mcr_connections` returns: "not recognized as package" error.
 
 
@@ -21,6 +24,10 @@ def mark_pipe_job_finished(job_ids, pipe_job_id):
         if curs:
             curs.close()
         conn.close()
+        print(json.dumps({"level": "INFO", "timestamp": datetime.now().isoformat(),
+                          "message": 'Finished pipeline.', "pipe_job_id": int(os.environ["PIPE_JOB_ID"]),
+                          "process_name": os.environ["PROCESS_NAME"], "process_version": os.environ["PROCESS_VERSION"],
+                          "uuid": os.environ["PROCESS_UUID"]}))
 
 
 if __name__ == '__main__':
