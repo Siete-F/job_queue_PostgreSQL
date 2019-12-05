@@ -74,5 +74,12 @@ When you would like another process name and version than the default, run:
 	`docker run -it --env PROCESS_NAME=second_process --env PROCESS_VERSION=1.0.0 --env-file=.env multifunctionalprocess`
 
 
-to do:
-- check if exposing port 5432 in dockerfile is necessary
+# Debugging Elasticsearch:
+Elasticsearch can be talked to through a restfull API. Indexes can be deleted in powershell by running the following (replace 'myindexhere'):
+`Invoke-RestMethod -Uri http://localhost:9200/myindexhere -Method delete -ContentType 'application/json'`
+
+Checking shard health (no idea actually what inside this provides). This link can be used in a browser:
+`http://localhost:9200/_cluster/health/`
+`http://localhost:9200/_cluster/health/?level=shards`
+
+

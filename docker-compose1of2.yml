@@ -4,7 +4,9 @@ services:
     image: mcrfluentd:1.0.0
     build: ./fluentd
     environment:
-      - TZ=Europe/Amsterdam
+      - TZ=UTC #Europe/Amsterdam
+      - ELASTICSEARCH_HOST=elasticsearch
+      - ELASTICSEARCH_PORT=9200
     depends_on:
       - "elasticsearch"
     ports:
@@ -14,18 +16,35 @@ services:
 
   elasticsearch:
     environment:
-      - "discovery.type=single-node"
-      - TZ=Europe/Amsterdam
+      - discovery.type=single-node
+      - TZ=UTC #Europe/Amsterdam
     image: elasticsearch:7.3.0
+    volumes:
+      - elastic-data:/usr/share/elasticsearch/data
     expose:
       - 9200
     ports:
       - "9200:9200"
 
 
+  # Data of Kibana is saved within elasticsearch
   kibana:
     image: kibana:7.3.0
     depends_on:
       - "elasticsearch"
+    volumes:
+      - kibana-data:/usr/share/kibana/data
     ports:
       - "5601:5601"
+    #secrets:
+    #  - kibana_config
+    #    target:/usr/share/kibana/config/kibana.yml
+    #command: ["/usr/local/bin/kibana-docker", "--config", "/run/secrets/kibana.yml"]
+
+volumes:
+  elastic-data:
+  kibana-data:
+
+#secrets:
+#  kibana_config:
+#    file: ./secrets/kibana.yml

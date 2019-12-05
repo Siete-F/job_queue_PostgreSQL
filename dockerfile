@@ -25,6 +25,9 @@ ENV PROCESS_NAME    ${PROCESS_NAME:-first_process}
 ENV PROCESS_VERSION ${PROCESS_VERSION:-9.9.9}
 ENV PROCESS_CMD_CALL 'python /process/test_process_code.py'
 
+# Set the timezone within the container
+ENV TZ UTC
+
 CMD [ "python", "-u", "/job_queue/job_finder.py" ]
 
 # Alternative approach to the `requirements.txt` file:

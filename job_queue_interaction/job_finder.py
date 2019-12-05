@@ -108,6 +108,7 @@ def listen():
                 print(json.dumps(
                     {"level": "INFO", "timestamp": datetime.now().isoformat(), "message": 'Retrying, lost job race.',
                      "process_name": PROCESS_NAME, "process_version": PROCESS_VERSION, "uuid": unique_uuid_code}))
+                time.sleep(3)
                 continue
 
             if my_job.lower() == 'no job found':

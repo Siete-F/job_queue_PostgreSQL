@@ -63,13 +63,14 @@ AS SELECT pl.pipe_id,
 -- Process handling
 -- Heartbeats table, every process creates or updates it heartbeat timestamp via a stored procedure 'send_heartbeat'
 CREATE TABLE Process_Heartbeats (
-    Process_uuid          VARCHAR(12) not null,
-    Last_Beat_Timestamp   TIMESTAMPTZ default current_timestamp,
-    Server_Name           VARCHAR(50) not null,
-    Process_Name          VARCHAR(50) not null,
-    Process_Version       VARCHAR(10) not null,
+    Process_uuid         VARCHAR(12) not null,
+    Startup_Timestamp    TIMESTAMPTZ default current_timestamp,
+    Last_Beat_Timestamp  TIMESTAMPTZ default current_timestamp,
+    Server_Name          VARCHAR(50) not null,
+    Process_Name         VARCHAR(50) not null,
+    Process_Version      VARCHAR(10) not null,
     Process_Busy         BOOL default False,
-    Process_Kill_switch   BOOL default False,
+    Process_Kill_switch  BOOL default False,
     primary key (Process_uuid)
 );
 
