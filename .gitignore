@@ -1,2 +1,4 @@
 /.idea
 /.env
+/venv/Lib
+/venv/Scripts
